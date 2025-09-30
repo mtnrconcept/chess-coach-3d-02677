@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Zap, Brain, Trophy } from "lucide-react";
+import { Clock, Zap, Brain, Trophy, Users } from "lucide-react";
 import { CustomRulesGenerator } from "@/components/CustomRulesGenerator";
 
 const timeControls = [
@@ -67,6 +67,17 @@ export default function ChessHome() {
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
             Maîtrisez l'art des échecs dans un environnement 3D immersif avec intelligence artificielle avancée
           </p>
+          <div className="flex justify-center gap-4 mt-6">
+            <Button
+              variant="outline"
+              size="lg"
+              className="hover-lift"
+              onClick={() => navigate("/lobby")}
+            >
+              <Users className="w-5 h-5 mr-2" />
+              Ouvrir le lobby multijoueur
+            </Button>
+          </div>
         </div>
 
         <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-8">
