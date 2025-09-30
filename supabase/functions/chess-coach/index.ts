@@ -20,9 +20,9 @@ serve(async (req) => {
   }
 
   try {
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openAIApiKey) {
-      throw new Error('OPENAI_API_KEY is not set');
+    const groqApiKey = Deno.env.get('GROQ_API_KEY');
+    if (!groqApiKey) {
+      throw new Error('GROQ_API_KEY is not set');
     }
 
     const { position, lastMove, gamePhase = 'opening', moveCount = 1 }: ChessCoachRequest = await req.json();
@@ -66,14 +66,14 @@ Analyse brièvement la position et donne un conseil constructif.`;
 - Opposition et zugzwang`;
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
+        'Authorization': `Bearer ${groqApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'llama3-8b-8192',
         messages: [
           { 
             role: 'system', 
@@ -93,8 +93,8 @@ Analyse brièvement la position et donne un conseil constructif.`;
 
     if (!response.ok) {
       const errorData = await response.text();
-      console.error('OpenAI API error:', errorData);
-      throw new Error(`OpenAI API error: ${response.status}`);
+      console.error('Groq API error:', errorData);
+      throw new Error(`Groq API error: ${response.status}`);
     }
 
     const data = await response.json();

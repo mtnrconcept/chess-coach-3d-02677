@@ -4,6 +4,21 @@
 
 **URL**: https://lovable.dev/projects/6a8b1507-b5c3-4213-9ae4-7a9d9899ff6f
 
+## Nouveautés
+
+- Lobby multijoueur permettant de créer ou rejoindre des salons en temps réel.
+- Analyse IA reposant sur le modèle open source **Llama 3 8B** via l'API Groq.
+
+### Configuration requise
+
+Définissez la variable d'environnement suivante pour Supabase Edge Functions :
+
+```
+GROQ_API_KEY=<votre_clef_api_groq>
+```
+
+Cette clé est utilisée par la fonction `chess-coach` pour générer les conseils via le modèle open source.
+
 ## How can I edit this code?
 
 There are several ways of editing your application.

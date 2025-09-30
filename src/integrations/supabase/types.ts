@@ -14,7 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      chess_lobbies: {
+        Row: {
+          coaching_mode: boolean
+          created_at: string
+          elo_level: string | null
+          id: string
+          increment: number
+          minutes: number
+          host_name: string
+          opponent_name: string | null
+          status: string
+          time_control: string
+        }
+        Insert: {
+          coaching_mode?: boolean
+          created_at?: string
+          elo_level?: string | null
+          id?: string
+          increment?: number
+          minutes: number
+          host_name: string
+          opponent_name?: string | null
+          status?: string
+          time_control: string
+        }
+        Update: {
+          coaching_mode?: boolean
+          created_at?: string
+          elo_level?: string | null
+          id?: string
+          increment?: number
+          minutes?: number
+          host_name?: string
+          opponent_name?: string | null
+          status?: string
+          time_control?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
