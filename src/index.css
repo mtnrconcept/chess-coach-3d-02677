@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Chess-themed design system */
+    --background: 220 25% 8%;
+    --foreground: 48 100% 95%;
+
+    --card: 220 20% 12%;
+    --card-foreground: 48 100% 95%;
+
+    --popover: 220 20% 12%;
+    --popover-foreground: 48 100% 95%;
+
+    --primary: 48 100% 65%;
+    --primary-foreground: 220 25% 8%;
+
+    --secondary: 220 15% 18%;
+    --secondary-foreground: 48 90% 90%;
+
+    --muted: 220 15% 16%;
+    --muted-foreground: 220 8% 60%;
+
+    --accent: 45 93% 58%;
+    --accent-foreground: 220 25% 8%;
+
+    --destructive: 0 75% 60%;
+    --destructive-foreground: 48 100% 95%;
+
+    --border: 220 15% 20%;
+    --input: 220 15% 20%;
+    --ring: 48 100% 65%;
+
+    --radius: 0.75rem;
+
+    /* Chess-specific colors */
+    --chess-light: 48 100% 95%;
+    --chess-dark: 220 25% 8%;
+    --chess-gold: 45 93% 58%;
+    --chess-silver: 220 8% 75%;
+    
+    /* Board colors */
+    --board-light: 48 50% 88%;
+    --board-dark: 35 25% 35%;
+    --board-highlight: 45 93% 58%;
+    
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(45 93% 58%), hsl(48 100% 65%));
+    --gradient-board: linear-gradient(45deg, hsl(220 25% 8%), hsl(220 20% 12%));
+    --gradient-card: linear-gradient(145deg, hsl(220 20% 12%), hsl(220 15% 16%));
+    
+    /* Shadows */
+    --shadow-chess: 0 20px 40px -10px hsl(220 25% 8% / 0.6);
+    --shadow-piece: 0 10px 30px -5px hsl(220 25% 8% / 0.8);
+    --shadow-glow: 0 0 50px hsl(45 93% 58% / 0.3);
+    
+    /* Animations */
+    --transition-smooth: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-piece: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    --sidebar-background: 220 20% 12%;
+    --sidebar-foreground: 48 90% 90%;
+    --sidebar-primary: 45 93% 58%;
+    --sidebar-primary-foreground: 220 25% 8%;
+    --sidebar-accent: 220 15% 18%;
+    --sidebar-accent-foreground: 48 90% 90%;
+    --sidebar-border: 220 15% 20%;
+    --sidebar-ring: 45 93% 58%;
+  }
+
+  .dark {
+    /* Dark mode uses the same chess theme */
+    --background: 220 25% 8%;
+    --foreground: 48 100% 95%;
+    --card: 220 20% 12%;
+    --card-foreground: 48 100% 95%;
+    --popover: 220 20% 12%;
+    --popover-foreground: 48 100% 95%;
+    --primary: 48 100% 65%;
+    --primary-foreground: 220 25% 8%;
+    --secondary: 220 15% 18%;
+    --secondary-foreground: 48 90% 90%;
+    --muted: 220 15% 16%;
+    --muted-foreground: 220 8% 60%;
+    --accent: 45 93% 58%;
+    --accent-foreground: 220 25% 8%;
+    --destructive: 0 75% 60%;
+    --destructive-foreground: 48 100% 95%;
+    --border: 220 15% 20%;
+    --input: 220 15% 20%;
+    --ring: 48 100% 65%;
+    --sidebar-background: 220 20% 12%;
+    --sidebar-foreground: 48 90% 90%;
+    --sidebar-primary: 45 93% 58%;
+    --sidebar-primary-foreground: 220 25% 8%;
+    --sidebar-accent: 220 15% 18%;
+    --sidebar-accent-foreground: 48 90% 90%;
+    --sidebar-border: 220 15% 20%;
+    --sidebar-ring: 45 93% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  /* Chess board squares */
+  .chess-square-light {
+    background: hsl(var(--board-light));
+  }
+
+  .chess-square-dark {
+    background: hsl(var(--board-dark));
+  }
+
+  .chess-square-highlighted {
+    background: hsl(var(--board-highlight) / 0.3);
+    box-shadow: inset 0 0 20px hsl(var(--board-highlight) / 0.5);
+  }
+
+  /* Custom animations */
+  .piece-move {
+    transition: var(--transition-piece);
+  }
+
+  .glow-effect {
+    filter: drop-shadow(var(--shadow-glow));
+  }
+
+  .hover-lift {
+    transition: var(--transition-smooth);
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-chess);
+  }
+}
+
+@layer components {
+  /* Chess-specific utilities */
+  .gradient-chess {
+    background: var(--gradient-primary);
+  }
+
+  .gradient-board {
+    background: var(--gradient-board);
+  }
+
+  .gradient-card {
+    background: var(--gradient-card);
+  }
+
+  .text-chess-gold {
+    color: hsl(var(--chess-gold));
+  }
+
+  .text-chess-silver {
+    color: hsl(var(--chess-silver));
+  }
+
+  .border-chess {
+    border-color: hsl(var(--board-highlight));
+  }
+}

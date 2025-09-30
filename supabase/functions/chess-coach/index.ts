@@ -1,0 +1,123 @@
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+interface ChessCoachRequest {
+  position: string;
+  lastMove?: { from: string; to: string; san: string };
+  gamePhase?: 'opening' | 'middlegame' | 'endgame';
+  moveCount?: number;
+}
+
+serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!openAIApiKey) {
+      throw new Error('OPENAI_API_KEY is not set');
+    }
+
+    const { position, lastMove, gamePhase = 'opening', moveCount = 1 }: ChessCoachRequest = await req.json();
+
+    // Construct coaching prompt based on game context
+    let systemPrompt = `Tu es un maître d'échecs professionnel et coach IA. Tu analyses les positions d'échecs et donnes des conseils en français.
+
+INSTRUCTIONS:
+- Sois concis (maximum 2-3 phrases)
+- Utilise un ton encourageant et pédagogique
+- Mentionne les principes d'échecs quand pertinent
+- Identifie les ouvertures, tactiques et stratégies
+- Adapte tes conseils au niveau débutant/intermédiaire
+
+CONTEXTE DU JEU:
+- Phase: ${gamePhase}
+- Coup numéro: ${moveCount}
+- Position FEN: ${position}
+${lastMove ? `- Dernier coup: ${lastMove.san} (${lastMove.from}->${lastMove.to})` : ''}
+
+Analyse brièvement la position et donne un conseil constructif.`;
+
+    // Phase-specific advice
+    if (gamePhase === 'opening') {
+      systemPrompt += `\n\nPRINCIPES D'OUVERTURE à rappeler:
+- Développement des pièces
+- Contrôle du centre (e4, d4, e5, d5)
+- Sécurité du roi (roque)
+- Ne pas sortir la dame trop tôt`;
+    } else if (gamePhase === 'middlegame') {
+      systemPrompt += `\n\nPRINCIPES DE MILIEU DE JEU:
+- Amélioration des pièces
+- Tactiques (fourchettes, clouages, découvertes)
+- Contrôle des colonnes et diagonales
+- Structure de pions`;
+    } else if (gamePhase === 'endgame') {
+      systemPrompt += `\n\nPRINCIPES DE FINALE:
+- Activation du roi
+- Promotion des pions
+- Techniques de mat élémentaires
+- Opposition et zugzwang`;
+    }
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { 
+            role: 'system', 
+            content: systemPrompt
+          },
+          { 
+            role: 'user', 
+            content: lastMove ? 
+              `Analyse le coup ${lastMove.san} dans cette position.` : 
+              `Analyse cette position d'échecs et donne un conseil.`
+          }
+        ],
+        max_tokens: 150,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('OpenAI API error:', errorData);
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const coaching = data.choices[0].message.content.trim();
+
+    console.log('Generated coaching:', coaching);
+
+    return new Response(JSON.stringify({ 
+      coaching,
+      gamePhase,
+      moveCount 
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+
+  } catch (error) {
+    console.error('Error in chess-coach function:', error);
+    return new Response(JSON.stringify({ 
+      error: error.message || 'Internal server error',
+      coaching: 'Continuez à jouer, chaque coup est une leçon !' 
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+});
