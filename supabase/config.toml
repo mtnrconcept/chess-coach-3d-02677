@@ -1,1 +1,7 @@
 project_id = "ucaqbhmyutlnitnedowk"
+
+[functions.chess-coach]
+verify_jwt = false
+
+[functions.generate-custom-rules]
+verify_jwt = false

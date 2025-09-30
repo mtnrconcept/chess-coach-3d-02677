@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Clock, Zap, Brain, Trophy } from "lucide-react";
+import { CustomRulesGenerator } from "@/components/CustomRulesGenerator";
 
 const timeControls = [
   { name: "Bullet", time: "1+0", minutes: 1, icon: Zap, description: "Ultra rapide" },
@@ -165,8 +166,13 @@ export default function ChessHome() {
           </Card>
         </div>
 
+        {/* Générateur de règles personnalisées */}
+        <div className="mt-12 max-w-4xl mx-auto animate-fade-in-up" style={{ animationDelay: '0.6s' }}>
+          <CustomRulesGenerator />
+        </div>
+
         {/* Bouton de démarrage */}
-        <div className="text-center mt-12 animate-fade-in-up" style={{ animationDelay: '0.6s' }}>
+        <div className="text-center mt-12 animate-fade-in-up" style={{ animationDelay: '0.8s' }}>
           <Button
             onClick={handleStartGame}
             variant="chess"
