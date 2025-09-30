@@ -74,6 +74,19 @@ export default function ChessGame() {
   const [isWhiteTurn, setIsWhiteTurn] = useState(true);
 
   const boardRef = useRef<any>();
+  const playerMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aiMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (playerMoveTimeoutRef.current) {
+        clearTimeout(playerMoveTimeoutRef.current);
+      }
+      if (aiMoveTimeoutRef.current) {
+        clearTimeout(aiMoveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!gameState.timeControl) {
@@ -130,10 +143,16 @@ export default function ChessGame() {
 
           // AI move after small delay
           if (!chess.isGameOver()) {
-            setTimeout(() => makeAIMove(), 1000);
+            if (playerMoveTimeoutRef.current) {
+              clearTimeout(playerMoveTimeoutRef.current);
+            }
+            playerMoveTimeoutRef.current = setTimeout(() => {
+              playerMoveTimeoutRef.current = null;
+              makeAIMove();
+            }, 1000);
           }
         }
-        
+
         setSelectedSquare(null);
         setPossibleMoves([]);
       } else {
@@ -159,12 +178,20 @@ export default function ChessGame() {
     if (currentPlayer !== 'b' || chess.isGameOver()) return;
 
     setIsThinking(true);
-    
+
+    if (aiMoveTimeoutRef.current) {
+      clearTimeout(aiMoveTimeoutRef.current);
+    }
+
     // Simple AI: random move (in real app, integrate Stockfish)
-    setTimeout(() => {
+    aiMoveTimeoutRef.current = setTimeout(() => {
       const possibleMoves = chess.moves();
-      if (possibleMoves.length === 0) return;
-      
+      if (possibleMoves.length === 0) {
+        setIsThinking(false);
+        aiMoveTimeoutRef.current = null;
+        return;
+      }
+
       const randomMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
       const move = chess.move(randomMove);
       
@@ -188,8 +215,9 @@ export default function ChessGame() {
           analyzeAIMove(move);
         }
       }
-      
+
       setIsThinking(false);
+      aiMoveTimeoutRef.current = null;
     }, 1000 + Math.random() * 2000); // Random thinking time
   };
 
