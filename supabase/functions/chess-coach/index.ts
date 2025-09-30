@@ -112,8 +112,9 @@ Analyse brièvement la position et donne un conseil constructif.`;
 
   } catch (error) {
     console.error('Error in chess-coach function:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return new Response(JSON.stringify({ 
-      error: error.message || 'Internal server error',
+      error: errorMessage,
       coaching: 'Continuez à jouer, chaque coup est une leçon !' 
     }), {
       status: 500,
