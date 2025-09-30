@@ -1,7 +1,16 @@
 import { useMemo } from 'react';
-import { BoxGeometry, MeshLambertMaterial, Mesh } from 'three';
 
-export function FbxChessSet(props: JSX.IntrinsicElements['group']) {
+type GroupProps = JSX.IntrinsicElements['group'];
+
+function filterThreeProps(props: GroupProps): GroupProps {
+  const filteredEntries = Object.entries(props).filter(([key]) => {
+    return !key.startsWith('data-') && !key.startsWith('aria-');
+  });
+
+  return Object.fromEntries(filteredEntries) as GroupProps;
+}
+
+export function FbxChessSet({ children, ...rest }: GroupProps) {
   // Create a simple decorative table/platform for the chess board
   const platform = useMemo(() => {
     return (
@@ -39,5 +48,12 @@ export function FbxChessSet(props: JSX.IntrinsicElements['group']) {
     );
   }, []);
 
-  return <group {...props}>{platform}</group>;
+  const groupProps = useMemo(() => filterThreeProps(rest), [rest]);
+
+  return (
+    <group {...groupProps}>
+      {platform}
+      {children}
+    </group>
+  );
 }
