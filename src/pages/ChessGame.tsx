@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Environment } from "@react-three/drei";
+import type { DirectionalLight } from "three";
 import { FbxChessSet } from "@/components/FbxChessSet";
 import { Chess } from "chess.js";
 import { Button } from "@/components/ui/button";
@@ -344,7 +345,9 @@ export default function ChessGame() {
                     position={[10, 10, 5]}
                     intensity={1}
                     castShadow
-                    shadow-mapSize={[2048, 2048]}
+                    onUpdate={(light: DirectionalLight) => {
+                      light.shadow.mapSize.set(2048, 2048);
+                    }}
                   />
                   <FbxChessSet />
                   <ChessBoard3D
