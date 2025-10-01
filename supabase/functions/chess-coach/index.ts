@@ -54,9 +54,12 @@ serve(async (req) => {
       moveCount,
     };
 
-    const groqApiKey = Deno.env.get('GROQ_API_KEY');
-    if (!groqApiKey) {
-      console.warn('GROQ_API_KEY is not set – returning fallback coaching message');
+    const lovableGeminiApiKey =
+      Deno.env.get('LOVABLE_GEMINI_API_KEY') ??
+      Deno.env.get('GEMINI_API_KEY');
+
+    if (!lovableGeminiApiKey) {
+      console.warn('No Gemini API key found – returning fallback coaching message');
       return jsonResponse(200, { ...baseResponse, warning: 'missing_api_key' });
     }
 
@@ -99,42 +102,52 @@ Analyse brièvement la position et donne un conseil constructif.`;
 - Opposition et zugzwang`;
     }
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${groqApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'llama3-8b-8192',
-        messages: [
-          {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${lovableGeminiApiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          systemInstruction: {
             role: 'system',
-            content: systemPrompt,
+            parts: [{ text: systemPrompt }],
           },
-          {
-            role: 'user',
-            content: lastMove
-              ? `Analyse le coup ${lastMove.san} dans cette position.`
-              : `Analyse cette position d'échecs et donne un conseil.`,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: lastMove
+                    ? `Analyse le coup ${lastMove.san} dans cette position.`
+                    : "Analyse cette position d'échecs et donne un conseil.",
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 300,
           },
-        ],
-        max_tokens: 150,
-        temperature: 0.7,
-      }),
-    });
+        }),
+      },
+    );
 
     if (!response.ok) {
       const errorData = await response.text();
-      console.error('Groq API error:', errorData);
-      return jsonResponse(200, { ...baseResponse, warning: `groq_error_${response.status}` });
+      console.error('Gemini API error:', errorData);
+      return jsonResponse(200, { ...baseResponse, warning: `gemini_error_${response.status}` });
     }
 
     const data = await response.json();
-    const coaching = data.choices?.[0]?.message?.content?.trim();
+    const coaching = data.candidates?.[0]?.content?.parts
+      ?.map((part: { text?: string }) => part.text ?? '')
+      .join('\n')
+      .trim();
 
     if (!coaching) {
-      console.warn('Groq API returned no coaching content – using fallback message');
+      console.warn('Gemini API returned no coaching content – using fallback message');
       return jsonResponse(200, { ...baseResponse, warning: 'empty_response' });
     }
 

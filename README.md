@@ -7,17 +7,21 @@
 ## Nouveautés
 
 - Lobby multijoueur permettant de créer ou rejoindre des salons en temps réel.
-- Analyse IA reposant sur le modèle open source **Llama 3 8B** via l'API Groq.
+- Coach IA et générateur de règles pilotés par **Gemini 2.5 Flash** via l'intégration Lovable.
 
 ### Configuration requise
 
-Définissez la variable d'environnement suivante pour Supabase Edge Functions :
+Les Edge Functions utilisent désormais l'IA Lovable (Gemini 2.5). Sur Lovable, aucune configuration n'est nécessaire.
+
+Pour un développement local, vous pouvez définir l'une des variables suivantes :
 
 ```
-GROQ_API_KEY=<votre_clef_api_groq>
+LOVABLE_GEMINI_API_KEY=<clef fournie par Lovable>
+# ou, à défaut :
+GEMINI_API_KEY=<votre clef API Gemini>
 ```
 
-Cette clé est utilisée par la fonction `chess-coach` pour générer les conseils via le modèle open source.
+Ces clés sont utilisées par les fonctions `chess-coach` et `generate-custom-rules` pour produire les réponses IA.
 
 ## How can I edit this code?
 

@@ -91,11 +91,13 @@ serve(async (req) => {
       });
     }
 
-    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
+    const geminiApiKey =
+      Deno.env.get('LOVABLE_GEMINI_API_KEY') ??
+      Deno.env.get('GEMINI_API_KEY');
 
     if (!geminiApiKey) {
       const fallbackRules = buildFallbackRules(description, difficulty);
-      console.warn('GEMINI_API_KEY is not set. Returning fallback rules.');
+      console.warn('No Gemini API key found. Returning fallback rules.');
       return new Response(JSON.stringify({
         rules: fallbackRules,
         difficulty,
@@ -118,7 +120,7 @@ INSTRUCTIONS:
 - Donne des exemples concrets si nécessaire
 - Assure-toi que les règles sont jouables et logiques`;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
