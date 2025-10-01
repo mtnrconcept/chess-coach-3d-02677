@@ -68,6 +68,12 @@ export default function ChessGame() {
   const [isThinking, setIsThinking] = useState(false);
   const [coachingComment, setCoachingComment] = useState<string>("");
   
+  // Game mode: 'ai' or 'local' (player vs player)
+  const [gameMode] = useState<'ai' | 'local'>(gameState.gameMode || 'ai');
+  
+  // Variant rules
+  const [activeVariant] = useState(gameState.variant || null);
+  
   // Timer states
   const [whiteTime, setWhiteTime] = useState(gameState.timeControl?.minutes * 60 || 300);
   const [blackTime, setBlackTime] = useState(gameState.timeControl?.minutes * 60 || 300);
@@ -94,15 +100,23 @@ export default function ChessGame() {
       return;
     }
     
-    toast.success(`Partie commencée : ${gameState.timeControl.time}`);
+    const gameModeText = gameMode === 'local' ? 'Local (2 joueurs)' : 'vs IA';
+    const variantText = activeVariant ? ` • ${activeVariant.title}` : '';
+    toast.success(`Partie commencée : ${gameState.timeControl.time} • ${gameModeText}${variantText}`);
     
     if (gameState.coachingMode) {
       setCoachingComment("Excellente ouverture ! Commencez par contrôler le centre avec e4 ou d4.");
     }
+    
+    if (activeVariant) {
+      console.log('Variante active:', activeVariant.title, activeVariant.description);
+    }
   }, []);
 
   const handleSquareClick = async (square: string) => {
-    if (gameStatus !== 'playing' || currentPlayer === 'b') return;
+    // In AI mode, only allow white to play. In local mode, allow both players
+    if (gameStatus !== 'playing') return;
+    if (gameMode === 'ai' && chess.turn() === 'b') return;
 
     try {
       if (selectedSquare === square) {
@@ -141,8 +155,8 @@ export default function ChessGame() {
             analyzeMove(move);
           }
 
-          // AI move after small delay
-          if (!chess.isGameOver()) {
+          // AI move after small delay (only in AI mode)
+          if (gameMode === 'ai' && !chess.isGameOver() && chess.turn() === 'b') {
             if (playerMoveTimeoutRef.current) {
               clearTimeout(playerMoveTimeoutRef.current);
             }
@@ -175,8 +189,13 @@ export default function ChessGame() {
   };
 
   const makeAIMove = () => {
-    if (currentPlayer !== 'b' || chess.isGameOver()) return;
+    // Check using chess.turn() directly to avoid state race condition
+    if (chess.turn() !== 'b' || chess.isGameOver()) {
+      console.log('AI cannot move:', { turn: chess.turn(), gameOver: chess.isGameOver() });
+      return;
+    }
 
+    console.log('AI is thinking...');
     setIsThinking(true);
 
     if (aiMoveTimeoutRef.current) {
@@ -186,21 +205,26 @@ export default function ChessGame() {
     // Simple AI: random move (in real app, integrate Stockfish)
     aiMoveTimeoutRef.current = setTimeout(() => {
       const possibleMoves = chess.moves();
+      console.log('AI possible moves:', possibleMoves.length);
+      
       if (possibleMoves.length === 0) {
+        console.log('No possible moves for AI');
         setIsThinking(false);
         aiMoveTimeoutRef.current = null;
         return;
       }
 
       const randomMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+      console.log('AI selected move:', randomMove);
       const move = chess.move(randomMove);
       
       if (move) {
+        console.log('AI move executed:', move);
         setGamePosition(chess.fen());
         setLastMove({ from: move.from, to: move.to });
         setMoveHistory(prev => [...prev, move]);
         setCurrentPlayer(chess.turn());
-        setIsWhiteTurn(!isWhiteTurn);
+        setIsWhiteTurn(chess.turn() === 'w');
         
         // Check game status
         if (chess.isCheckmate()) {
@@ -218,7 +242,7 @@ export default function ChessGame() {
 
       setIsThinking(false);
       aiMoveTimeoutRef.current = null;
-    }, 1000 + Math.random() * 2000); // Random thinking time
+    }, 800 + Math.random() * 1200); // Faster thinking time
   };
 
   const analyzeMove = async (move: any) => {
@@ -313,7 +337,8 @@ export default function ChessGame() {
           
           <div className="text-center">
             <h1 className="text-2xl font-bold text-chess-gold">
-              {gameState.timeControl?.time} • {gameState.coachingMode ? "Mode Coaching" : gameState.eloLevel?.name}
+              {gameState.timeControl?.time} • {gameMode === 'local' ? '2 joueurs' : gameState.coachingMode ? "Mode Coaching" : gameState.eloLevel?.name}
+              {activeVariant && ` • ${activeVariant.title}`}
             </h1>
             <div className="flex items-center gap-2 justify-center mt-1">
               <Badge variant={gameStatus === 'playing' ? "default" : "secondary"}>

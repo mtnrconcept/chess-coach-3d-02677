@@ -19,10 +19,10 @@ export type Database = {
           coaching_mode: boolean
           created_at: string
           elo_level: string | null
+          host_name: string
           id: string
           increment: number
           minutes: number
-          host_name: string
           opponent_name: string | null
           status: string
           time_control: string
@@ -31,10 +31,10 @@ export type Database = {
           coaching_mode?: boolean
           created_at?: string
           elo_level?: string | null
+          host_name: string
           id?: string
           increment?: number
-          minutes: number
-          host_name: string
+          minutes?: number
           opponent_name?: string | null
           status?: string
           time_control: string
@@ -43,10 +43,10 @@ export type Database = {
           coaching_mode?: boolean
           created_at?: string
           elo_level?: string | null
+          host_name?: string
           id?: string
           increment?: number
           minutes?: number
-          host_name?: string
           opponent_name?: string | null
           status?: string
           time_control?: string

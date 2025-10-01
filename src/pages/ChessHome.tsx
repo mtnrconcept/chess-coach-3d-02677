@@ -30,6 +30,7 @@ export default function ChessHome() {
   const [selectedTime, setSelectedTime] = useState(timeControls[3]);
   const [selectedElo, setSelectedElo] = useState(eloLevels[1]);
   const [isCoachingMode, setIsCoachingMode] = useState(false);
+  const [gameMode, setGameMode] = useState<'ai' | 'local'>('ai');
 
   const handleStartGame = () => {
     // Only pass serializable data to navigate state to avoid History pushState errors
@@ -40,7 +41,8 @@ export default function ChessHome() {
         timeControl: { name, time, minutes, description },
         // Spread to ensure we're passing a plain serializable object
         eloLevel: { ...selectedElo },
-        coachingMode: isCoachingMode
+        coachingMode: isCoachingMode,
+        gameMode: gameMode
       }
     });
   };
@@ -112,7 +114,7 @@ export default function ChessHome() {
             </div>
 
             {/* Mode coaching */}
-            <div className="border-t border-border pt-6">
+            <div className="border-t border-border pt-6 space-y-4">
               <div
                 onClick={() => setIsCoachingMode(!isCoachingMode)}
                 className={`p-4 rounded-lg cursor-pointer transition-all hover-lift ${
@@ -131,6 +133,31 @@ export default function ChessHome() {
                 <p className="text-sm text-muted-foreground">
                   L'IA commente chaque coup : ouvertures, tactiques, erreurs
                 </p>
+              </div>
+
+              <div className="p-4 rounded-lg bg-secondary/50 border border-border">
+                <div className="flex items-center gap-3 mb-3">
+                  <Users className="w-5 h-5 text-primary" />
+                  <span className="font-semibold">Type de partie</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant={gameMode === 'ai' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setGameMode('ai')}
+                    className="flex-1"
+                  >
+                    vs IA
+                  </Button>
+                  <Button
+                    variant={gameMode === 'local' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setGameMode('local')}
+                    className="flex-1"
+                  >
+                    Local (2 joueurs)
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>
@@ -197,7 +224,7 @@ export default function ChessHome() {
           <div className="mt-4 text-sm text-muted-foreground">
             Partie : {selectedTime.time} • 
             Niveau : {isCoachingMode ? "Maître (Coaching)" : selectedElo.name} • 
-            Mode : {isCoachingMode ? "Coaching" : "Standard"}
+            Mode : {gameMode === 'local' ? 'Local (2 joueurs)' : isCoachingMode ? "Coaching" : "vs IA"}
           </div>
         </div>
       </div>

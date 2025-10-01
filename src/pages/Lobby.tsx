@@ -55,6 +55,7 @@ export default function Lobby() {
   const [selectedElo, setSelectedElo] = useState(eloLevels[1].id);
   const [coachingMode, setCoachingMode] = useState(false);
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
+  const [gameMode, setGameMode] = useState<'ai' | 'local'>('ai');
 
   const selectedTimeConfig = useMemo(
     () => timeControls.find((control) => control.id === selectedTime) ?? timeControls[0],
@@ -274,6 +275,31 @@ export default function Lobby() {
                 </div>
                 <Switch checked={coachingMode} onCheckedChange={setCoachingMode} />
               </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3 bg-background/60">
+                <div>
+                  <p className="font-medium">Type de partie</p>
+                  <p className="text-xs text-muted-foreground">
+                    {gameMode === 'ai' ? 'Jouer contre l\'IA' : 'Partie locale (2 joueurs)'}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant={gameMode === 'ai' ? 'default' : 'outline'}
+                    onClick={() => setGameMode('ai')}
+                  >
+                    vs IA
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={gameMode === 'local' ? 'default' : 'outline'}
+                    onClick={() => setGameMode('local')}
+                  >
+                    Local
+                  </Button>
+                </div>
+              </div>
             </div>
 
             <Button
@@ -410,6 +436,7 @@ export default function Lobby() {
                           },
                           eloLevel: { name: selectedEloConfig.label, elo: selectedEloConfig.label, color: "bg-blue-500" },
                           coachingMode: false,
+                          gameMode: gameMode,
                           variant: variant,
                         },
                       });
