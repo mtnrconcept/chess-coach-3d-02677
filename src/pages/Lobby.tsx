@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,9 +11,31 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { lobbyRooms as variantLobbyRooms } from "@/variant-chess-lobby";
 import { toast } from "sonner";
-import { Clock, Users, Sword, Hourglass, PlusCircle, XCircle } from "lucide-react";
+import { Clock, Users, Sword, Hourglass, PlusCircle, XCircle, AlertTriangle } from "lucide-react";
+
+const LOCAL_LOBBIES_KEY = "chess-coach-local-lobbies";
+
+const readStoredLobbies = (): LobbyRow[] => {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const raw = window.localStorage.getItem(LOCAL_LOBBIES_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as LobbyRow[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn("Unable to parse local lobby storage", error);
+    return [];
+  }
+};
 
 const timeControls = [
   { id: "1+0", label: "Bullet 1+0", minutes: 1, increment: 0 },
@@ -54,8 +76,11 @@ export default function Lobby() {
   const [selectedTime, setSelectedTime] = useState(timeControls[2].id);
   const [selectedElo, setSelectedElo] = useState(eloLevels[1].id);
   const [coachingMode, setCoachingMode] = useState(false);
-  const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<string | null>(() => variantLobbyRooms?.[0]?.id ?? null);
   const [gameMode, setGameMode] = useState<'ai' | 'local'>('ai');
+  const [localLobbies, setLocalLobbies] = useState<LobbyRow[]>(() => readStoredLobbies());
+  const [isFallback, setIsFallback] = useState(false);
+  const [fallbackReason, setFallbackReason] = useState<string | null>(null);
 
   const selectedTimeConfig = useMemo(
     () => timeControls.find((control) => control.id === selectedTime) ?? timeControls[0],
@@ -65,23 +90,86 @@ export default function Lobby() {
     () => eloLevels.find((level) => level.id === selectedElo) ?? eloLevels[0],
     [selectedElo]
   );
+  const selectedVariantData = useMemo(
+    () => variantLobbyRooms?.find((room) => room.id === selectedVariant) ?? null,
+    [selectedVariant]
+  );
+
+  const persistLocalLobbies = useCallback((next: LobbyRow[]) => {
+    setLocalLobbies(next);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(LOCAL_LOBBIES_KEY, JSON.stringify(next));
+    }
+  }, []);
+
+  const applyLocalLobbyUpdate = useCallback(
+    (updater: LobbyRow[] | ((prev: LobbyRow[]) => LobbyRow[])) => {
+      setLocalLobbies((prev) => {
+        const next = typeof updater === "function" ? (updater as (value: LobbyRow[]) => LobbyRow[])(prev) : updater;
+
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(LOCAL_LOBBIES_KEY, JSON.stringify(next));
+        }
+
+        queryClient.setQueryData(["chess-lobbies"], next);
+        return next;
+      });
+    },
+    [queryClient],
+  );
 
   const lobbyQuery = useQuery({
     queryKey: ["chess-lobbies"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("chess_lobbies")
-        .select("*")
-        .in("status", ["open", "matched"])
-        .order("created_at", { ascending: false });
+      try {
+        const { data, error } = await supabase
+          .from("chess_lobbies")
+          .select("*")
+          .in("status", ["open", "matched"])
+          .order("created_at", { ascending: false });
 
-      if (error) {
-        throw error;
+        if (error) {
+          throw error;
+        }
+
+        const typed = (data ?? []) as LobbyRow[];
+        persistLocalLobbies(typed);
+        setIsFallback(false);
+        setFallbackReason(null);
+        return typed;
+      } catch (error) {
+        const stored = readStoredLobbies();
+        setIsFallback(true);
+        setFallbackReason(error instanceof Error ? error.message : "Service de lobby indisponible.");
+        setLocalLobbies(stored);
+        queryClient.setQueryData(["chess-lobbies"], stored);
+        return stored;
       }
-
-      return data as LobbyRow[];
     },
   });
+
+  const lobbyList = lobbyQuery.data ?? localLobbies;
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === LOCAL_LOBBIES_KEY) {
+        const updated = readStoredLobbies();
+        setLocalLobbies(updated);
+        queryClient.setQueryData(["chess-lobbies"], updated);
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [queryClient]);
 
   useEffect(() => {
     const channel = supabase
@@ -106,6 +194,25 @@ export default function Lobby() {
         throw new Error("Veuillez renseigner votre pseudonyme.");
       }
 
+      if (isFallback) {
+        const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `local-${Date.now()}`;
+        const newLobby: LobbyRow = {
+          id,
+          host_name: hostName.trim(),
+          time_control: selectedTimeConfig.id,
+          minutes: selectedTimeConfig.minutes,
+          increment: selectedTimeConfig.increment,
+          elo_level: selectedEloConfig.label,
+          coaching_mode: coachingMode,
+          status: "open",
+          opponent_name: null,
+          created_at: new Date().toISOString(),
+        };
+
+        applyLocalLobbyUpdate((prev) => [newLobby, ...prev]);
+        return;
+      }
+
       const { error } = await supabase.from("chess_lobbies").insert({
         host_name: hostName.trim(),
         time_control: selectedTimeConfig.id,
@@ -122,7 +229,9 @@ export default function Lobby() {
     onSuccess: () => {
       toast.success("Salon créé ! Les autres joueurs peuvent vous rejoindre.");
       setHostName("");
-      queryClient.invalidateQueries({ queryKey: ["chess-lobbies"] });
+      if (!isFallback) {
+        queryClient.invalidateQueries({ queryKey: ["chess-lobbies"] });
+      }
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -138,14 +247,26 @@ export default function Lobby() {
     const timeConfig = timeControls.find((control) => control.id === lobby.time_control);
     const timeLabel = timeConfig?.label ?? lobby.time_control;
 
-    const { error } = await supabase
-      .from("chess_lobbies")
-      .update({ status: "matched", opponent_name: playerName.trim() })
-      .eq("id", lobby.id);
+    if (isFallback) {
+      applyLocalLobbyUpdate((prev) =>
+        prev.map((entry) =>
+          entry.id === lobby.id
+            ? { ...entry, status: "matched", opponent_name: playerName.trim() }
+            : entry,
+        ),
+      );
+    } else {
+      const { error } = await supabase
+        .from("chess_lobbies")
+        .update({ status: "matched", opponent_name: playerName.trim() })
+        .eq("id", lobby.id);
 
-    if (error) {
-      toast.error("Impossible de rejoindre le salon.");
-      return;
+      if (error) {
+        toast.error("Impossible de rejoindre le salon.");
+        return;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["chess-lobbies"] });
     }
 
     toast.success("Salon rejoint ! Préparation de la partie...");
@@ -176,14 +297,20 @@ export default function Lobby() {
       return;
     }
 
-    const { error } = await supabase
-      .from("chess_lobbies")
-      .update({ status: "closed" })
-      .eq("id", lobby.id);
+    if (isFallback) {
+      applyLocalLobbyUpdate((prev) => prev.filter((entry) => entry.id !== lobby.id));
+    } else {
+      const { error } = await supabase
+        .from("chess_lobbies")
+        .update({ status: "closed" })
+        .eq("id", lobby.id);
 
-    if (error) {
-      toast.error("Impossible de fermer le salon.");
-      return;
+      if (error) {
+        toast.error("Impossible de fermer le salon.");
+        return;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["chess-lobbies"] });
     }
 
     toast.success("Salon fermé.");
@@ -324,6 +451,22 @@ export default function Lobby() {
                 </Button>
               </div>
 
+              {isFallback && (
+                <Alert className="mb-6 border-chess-gold/50 bg-chess-gold/10 text-foreground">
+                  <AlertTriangle className="h-5 w-5 text-chess-gold" />
+                  <AlertTitle className="text-sm font-semibold text-chess-gold">Mode local activé</AlertTitle>
+                  <AlertDescription className="text-xs leading-relaxed text-muted-foreground">
+                    La connexion au lobby en ligne est indisponible. Vos salons sont enregistrés dans le stockage local et
+                    synchronisés entre les onglets ouverts de ce navigateur.
+                    {fallbackReason && (
+                      <span className="mt-2 block text-[11px] text-muted-foreground/80">
+                        Détail&nbsp;: {fallbackReason}
+                      </span>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {lobbyQuery.isLoading ? (
                 <div className="space-y-4">
                   {[1, 2, 3].map((skeleton) => (
@@ -334,13 +477,13 @@ export default function Lobby() {
                 <div className="p-6 text-center text-muted-foreground">
                   Impossible de charger les salons. Veuillez réessayer plus tard.
                 </div>
-              ) : lobbyQuery.data.length === 0 ? (
+              ) : lobbyList.length === 0 ? (
                 <div className="p-10 text-center text-muted-foreground bg-background/40 rounded-lg border border-border">
                   Aucun salon disponible pour le moment. Créez le vôtre pour inviter d'autres joueurs !
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {lobbyQuery.data.map((lobby) => (
+                  {lobbyList.map((lobby) => (
                     <div
                       key={lobby.id}
                       className="p-5 rounded-xl border border-border bg-background/60 hover:bg-background/80 transition-colors"
@@ -413,68 +556,102 @@ export default function Lobby() {
                 Découvrez les 30 variantes disponibles : chaque salon applique une règle spéciale qui transforme votre
                 façon de jouer. Sélectionnez une variante pour lancer une partie.
               </p>
-              
-              {selectedVariant && (
-                <div className="flex items-center gap-3 p-4 bg-chess-gold/10 border border-chess-gold/30 rounded-lg">
-                  <Badge variant="default" className="bg-chess-gold text-background">
-                    {variantLobbyRooms?.find(r => r.id === selectedVariant)?.title}
-                  </Badge>
-                  <Button 
-                    className="ml-auto hover-lift" 
-                    variant="chess"
-                    onClick={() => {
-                      const variant = variantLobbyRooms?.find(r => r.id === selectedVariant);
-                      if (!variant) return;
-                      navigate("/game", {
-                        state: {
-                          timeControl: {
-                            name: selectedTimeConfig.label,
-                            time: selectedTimeConfig.id,
-                            minutes: selectedTimeConfig.minutes,
-                            increment: selectedTimeConfig.increment,
-                            description: "Partie avec variante",
-                          },
-                          eloLevel: { name: selectedEloConfig.label, elo: selectedEloConfig.label, color: "bg-blue-500" },
-                          coachingMode: false,
-                          gameMode: gameMode,
-                          variant: variant,
-                        },
-                      });
-                    }}
-                  >
-                    Lancer la partie
-                  </Button>
+              {!variantLobbyRooms || variantLobbyRooms.length === 0 ? (
+                <div className="p-10 text-center text-muted-foreground bg-background/40 rounded-lg border border-border">
+                  Chargement des variantes...
+                </div>
+              ) : (
+                <div className="grid gap-6 md:grid-cols-[280px,1fr]">
+                  <ScrollArea className="max-h-[420px] rounded-xl border border-border bg-background/40">
+                    <div className="p-2 space-y-2">
+                      {variantLobbyRooms.map((room) => {
+                        const isSelected = selectedVariant === room.id;
+                        return (
+                          <button
+                            type="button"
+                            key={room.id}
+                            onClick={() => setSelectedVariant(room.id)}
+                            className={`w-full text-left rounded-lg px-4 py-3 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-chess-gold/70 ${
+                              isSelected
+                                ? 'bg-chess-gold/20 border border-chess-gold/60 shadow-lg shadow-chess-gold/20'
+                                : 'bg-background/60 border border-transparent hover:border-chess-gold/40 hover:bg-background/80'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={`font-semibold ${isSelected ? 'text-chess-gold' : 'text-chess-gold/80'}`}>
+                                {room.title}
+                              </span>
+                              {isSelected && (
+                                <span className="inline-flex items-center rounded-full border border-chess-gold/50 bg-chess-gold/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-chess-gold">
+                                  Sélectionné
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                              {room.description}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+
+                  <div className="relative overflow-hidden rounded-xl border border-chess-gold/40 bg-gradient-to-br from-chess-gold/15 via-background/30 to-background/60 p-6 shadow-inner">
+                    {selectedVariantData ? (
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Badge variant="default" className="bg-chess-gold text-background shadow-md shadow-chess-gold/40">
+                            {selectedVariantData.title}
+                          </Badge>
+                          <p className="text-sm text-muted-foreground leading-relaxed">
+                            {selectedVariantData.description}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span className="rounded-full border border-chess-gold/40 bg-background/70 px-3 py-1 font-semibold uppercase tracking-wide text-chess-gold">
+                            Règle&nbsp;: {selectedVariantData.ruleId}
+                          </span>
+                          <span className="rounded-full border border-border bg-background/70 px-3 py-1 font-medium">
+                            Cadence sélectionnée&nbsp;: {selectedTimeConfig.label}
+                          </span>
+                          <span className="rounded-full border border-border bg-background/70 px-3 py-1 font-medium">
+                            Mode&nbsp;: {gameMode === 'ai' ? 'vs IA' : 'Local'}
+                          </span>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button
+                            className="hover-lift"
+                            variant="chess"
+                            onClick={() => {
+                              navigate("/game", {
+                                state: {
+                                  timeControl: {
+                                    name: selectedTimeConfig.label,
+                                    time: selectedTimeConfig.id,
+                                    minutes: selectedTimeConfig.minutes,
+                                    increment: selectedTimeConfig.increment,
+                                    description: "Partie avec variante",
+                                  },
+                                  eloLevel: { name: selectedEloConfig.label, elo: selectedEloConfig.label, color: "bg-blue-500" },
+                                  coachingMode: false,
+                                  gameMode: gameMode,
+                                  variant: selectedVariantData,
+                                },
+                              });
+                            }}
+                          >
+                            Lancer cette variante
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
+                        Sélectionnez une variante dans la liste pour afficher les détails.
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
-
-              <ScrollArea className="max-h-[420px] pr-4">
-                {!variantLobbyRooms || variantLobbyRooms.length === 0 ? (
-                  <div className="p-10 text-center text-muted-foreground bg-background/40 rounded-lg border border-border">
-                    Chargement des variantes...
-                  </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {variantLobbyRooms.map((room) => (
-                      <div
-                        key={room.id}
-                        onClick={() => setSelectedVariant(room.id)}
-                        className={`p-4 rounded-xl border transition-all cursor-pointer ${
-                          selectedVariant === room.id
-                            ? 'border-chess-gold bg-chess-gold/20 ring-2 ring-chess-gold/50'
-                            : 'border-border bg-background/60 hover:bg-background/80 hover:border-chess-gold/50'
-                        }`}
-                      >
-                        <h3 className={`text-lg font-semibold ${
-                          selectedVariant === room.id ? 'text-chess-gold' : 'text-chess-gold/80'
-                        }`}>
-                          {room.title}
-                        </h3>
-                        <p className="text-sm text-muted-foreground leading-relaxed">{room.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </ScrollArea>
             </Card>
           </div>
         </div>
