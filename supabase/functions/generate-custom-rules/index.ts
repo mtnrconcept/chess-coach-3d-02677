@@ -45,18 +45,18 @@ INSTRUCTIONS:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5-mini-2025-08-07',
+        model: 'gpt-4o-mini',
         messages: [
-          { 
-            role: 'system', 
+          {
+            role: 'system',
             content: systemPrompt
           },
-          { 
-            role: 'user', 
+          {
+            role: 'user',
             content: `Crée des règles d'échecs personnalisées basées sur cette description: ${description}`
           }
         ],
-        max_completion_tokens: 800,
+        max_tokens: 800,
       }),
     });
 
