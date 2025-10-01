@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,7 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { lobbyRooms as variantLobbyRooms } from "@/variant-chess-lobby";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Clock, Users, Sword, Hourglass, PlusCircle, XCircle } from "lucide-react";
 
@@ -46,6 +48,70 @@ type LobbyRow = {
   created_at: string;
 };
 
+const LOCAL_LOBBY_STORAGE_KEY = "cc3d-local-chess-lobbies";
+const LOCAL_LOBBY_EVENT = "cc3d-local-lobbies-update";
+
+const generateLobbyId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `lobby-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const isSchemaCacheError = (error: unknown) => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const message = "message" in error ? String((error as { message?: string }).message || "") : "";
+  return message.toLowerCase().includes("schema cache");
+};
+
+const readLocalLobbies = (): LobbyRow[] => {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LOCAL_LOBBY_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as LobbyRow[];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((item) => item && typeof item === "object")
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  } catch (error) {
+    console.warn("Impossible de lire les salons locaux", error);
+    return [];
+  }
+};
+
+const persistLocalLobbies = (lobbies: LobbyRow[]) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(LOCAL_LOBBY_STORAGE_KEY, JSON.stringify(lobbies));
+  window.dispatchEvent(new Event(LOCAL_LOBBY_EVENT));
+};
+
+const upsertLocalLobby = (lobby: LobbyRow) => {
+  const current = readLocalLobbies();
+  const updated = [lobby, ...current.filter((item) => item.id !== lobby.id)];
+  persistLocalLobbies(updated);
+  return lobby;
+};
+
+const patchLocalLobby = (id: string, patch: Partial<LobbyRow>) => {
+  const current = readLocalLobbies();
+  const updated = current.map((item) => (item.id === id ? { ...item, ...patch } : item));
+  persistLocalLobbies(updated);
+  return updated.find((item) => item.id === id) ?? null;
+};
+
 export default function Lobby() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -54,6 +120,19 @@ export default function Lobby() {
   const [selectedTime, setSelectedTime] = useState(timeControls[2].id);
   const [selectedElo, setSelectedElo] = useState(eloLevels[1].id);
   const [coachingMode, setCoachingMode] = useState(false);
+  const [useLocalData, setUseLocalData] = useState(false);
+  const [schemaErrorMessage, setSchemaErrorMessage] = useState<string | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<(typeof variantLobbyRooms)[number] | null>(null);
+
+  const syncLocalLobbies = useCallback(() => {
+    queryClient.setQueryData(["chess-lobbies", true], readLocalLobbies());
+  }, [queryClient]);
+
+  const invalidateLobbyQueries = useCallback(() => {
+    queryClient.invalidateQueries({
+      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "chess-lobbies",
+    });
+  }, [queryClient]);
 
   const selectedTimeConfig = useMemo(
     () => timeControls.find((control) => control.id === selectedTime) ?? timeControls[0],
@@ -65,8 +144,12 @@ export default function Lobby() {
   );
 
   const lobbyQuery = useQuery({
-    queryKey: ["chess-lobbies"],
+    queryKey: ["chess-lobbies", useLocalData],
     queryFn: async () => {
+      if (useLocalData) {
+        return readLocalLobbies();
+      }
+
       const { data, error } = await supabase
         .from("chess_lobbies")
         .select("*")
@@ -74,21 +157,53 @@ export default function Lobby() {
         .order("created_at", { ascending: false });
 
       if (error) {
+        if (isSchemaCacheError(error)) {
+          if (!useLocalData) {
+            setUseLocalData(true);
+            setSchemaErrorMessage(error.message);
+            toast.warning(
+              "Connexion Supabase indisponible. Les salons sont désormais enregistrés uniquement sur cet appareil."
+            );
+          }
+          return readLocalLobbies();
+        }
         throw error;
       }
 
-      return data as LobbyRow[];
+      setSchemaErrorMessage(null);
+
+      return (data as LobbyRow[]) ?? [];
     },
   });
 
   useEffect(() => {
+    if (useLocalData) {
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      const handleStorage = (event: StorageEvent) => {
+        if (event.key === LOCAL_LOBBY_STORAGE_KEY) {
+          syncLocalLobbies();
+        }
+      };
+
+      window.addEventListener("storage", handleStorage);
+      window.addEventListener(LOCAL_LOBBY_EVENT, syncLocalLobbies);
+
+      return () => {
+        window.removeEventListener("storage", handleStorage);
+        window.removeEventListener(LOCAL_LOBBY_EVENT, syncLocalLobbies);
+      };
+    }
+
     const channel = supabase
       .channel("chess-lobby-updates")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "chess_lobbies" },
         () => {
-          queryClient.invalidateQueries({ queryKey: ["chess-lobbies"] });
+          invalidateLobbyQueries();
         }
       )
       .subscribe();
@@ -96,31 +211,72 @@ export default function Lobby() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [queryClient]);
+  }, [invalidateLobbyQueries, syncLocalLobbies, useLocalData]);
 
   const createLobbyMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<{ lobby: LobbyRow; usedLocal: boolean }> => {
       if (!hostName.trim()) {
         throw new Error("Veuillez renseigner votre pseudonyme.");
       }
 
-      const { error } = await supabase.from("chess_lobbies").insert({
+      const basePayload = {
         host_name: hostName.trim(),
         time_control: selectedTimeConfig.id,
         minutes: selectedTimeConfig.minutes,
         increment: selectedTimeConfig.increment,
         elo_level: selectedEloConfig.label,
         coaching_mode: coachingMode,
-      });
+      };
 
-      if (error) {
-        throw error;
+      if (useLocalData) {
+        const newLobby: LobbyRow = {
+          id: generateLobbyId(),
+          created_at: new Date().toISOString(),
+          opponent_name: null,
+          status: "open",
+          ...basePayload,
+        };
+        upsertLocalLobby(newLobby);
+        return { lobby: newLobby, usedLocal: true };
       }
+
+      const { data, error } = await supabase
+        .from("chess_lobbies")
+        .insert(basePayload)
+        .select()
+        .single<LobbyRow>();
+
+      if (error || !data) {
+        if (error && isSchemaCacheError(error)) {
+          setUseLocalData(true);
+          setSchemaErrorMessage(error.message);
+          toast.warning(
+            "Impossible de joindre la base Supabase. Un mode local est activé pour ce salon."
+          );
+          const newLobby: LobbyRow = {
+            id: generateLobbyId(),
+            created_at: new Date().toISOString(),
+            opponent_name: null,
+            status: "open",
+            ...basePayload,
+          };
+          upsertLocalLobby(newLobby);
+          return { lobby: newLobby, usedLocal: true };
+        }
+
+        throw error ?? new Error("Création du salon impossible.");
+      }
+
+      return { lobby: data, usedLocal: false };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       toast.success("Salon créé ! Les autres joueurs peuvent vous rejoindre.");
       setHostName("");
-      queryClient.invalidateQueries({ queryKey: ["chess-lobbies"] });
+      if (result.usedLocal || useLocalData) {
+        syncLocalLobbies();
+      } else {
+        invalidateLobbyQueries();
+      }
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -133,37 +289,79 @@ export default function Lobby() {
       return;
     }
 
+    const trimmedName = playerName.trim();
+    if (!trimmedName) {
+      toast.error("Veuillez renseigner un pseudonyme valide.");
+      return;
+    }
+
     const timeConfig = timeControls.find((control) => control.id === lobby.time_control);
     const timeLabel = timeConfig?.label ?? lobby.time_control;
 
-    const { error } = await supabase
-      .from("chess_lobbies")
-      .update({ status: "matched", opponent_name: playerName.trim() })
-      .eq("id", lobby.id);
+    let updatedLobby: LobbyRow | null = null;
+    let switchedToLocal = false;
 
-    if (error) {
-      toast.error("Impossible de rejoindre le salon.");
+    if (useLocalData) {
+      updatedLobby = patchLocalLobby(lobby.id, { status: "matched", opponent_name: trimmedName });
+      if (!updatedLobby) {
+        toast.error("Impossible de rejoindre le salon local.");
+        return;
+      }
+    } else {
+      const { data, error } = await supabase
+        .from("chess_lobbies")
+        .update({ status: "matched", opponent_name: trimmedName })
+        .eq("id", lobby.id)
+        .select()
+        .single<LobbyRow>();
+
+      if (error || !data) {
+        if (error && isSchemaCacheError(error)) {
+          setUseLocalData(true);
+          setSchemaErrorMessage(error.message);
+          toast.warning(
+            "Connexion Supabase indisponible. Bascule vers un salon stocké localement."
+          );
+          updatedLobby = patchLocalLobby(lobby.id, { status: "matched", opponent_name: trimmedName });
+          switchedToLocal = true;
+        } else {
+          toast.error("Impossible de rejoindre le salon.");
+          return;
+        }
+      } else {
+        updatedLobby = data;
+      }
+    }
+
+    if (!updatedLobby) {
+      toast.error("Le salon n'a pas pu être mis à jour.");
       return;
+    }
+
+    if (useLocalData || switchedToLocal) {
+      syncLocalLobbies();
+    } else {
+      invalidateLobbyQueries();
     }
 
     toast.success("Salon rejoint ! Préparation de la partie...");
 
-    const levelLabel = lobby.elo_level ?? "Libre";
+    const levelLabel = updatedLobby.elo_level ?? "Libre";
 
     navigate("/game", {
       state: {
         timeControl: {
           name: timeLabel,
-          time: lobby.time_control,
-          minutes: lobby.minutes,
-          increment: lobby.increment,
+          time: updatedLobby.time_control,
+          minutes: updatedLobby.minutes,
+          increment: updatedLobby.increment,
           description: "Partie depuis le lobby",
         },
         eloLevel: { name: levelLabel, elo: levelLabel, color: "bg-blue-500" },
-        coachingMode: lobby.coaching_mode,
-        lobbyId: lobby.id,
-        hostName: lobby.host_name,
-        opponentName: playerName.trim(),
+        coachingMode: updatedLobby.coaching_mode,
+        lobbyId: updatedLobby.id,
+        hostName: updatedLobby.host_name,
+        opponentName: trimmedName,
       },
     });
   };
@@ -174,14 +372,37 @@ export default function Lobby() {
       return;
     }
 
-    const { error } = await supabase
-      .from("chess_lobbies")
-      .update({ status: "closed" })
-      .eq("id", lobby.id);
+    let switchedToLocal = false;
 
-    if (error) {
-      toast.error("Impossible de fermer le salon.");
-      return;
+    if (useLocalData) {
+      patchLocalLobby(lobby.id, { status: "closed" });
+      syncLocalLobbies();
+    } else {
+      const { error } = await supabase
+        .from("chess_lobbies")
+        .update({ status: "closed" })
+        .eq("id", lobby.id);
+
+      if (error) {
+        if (isSchemaCacheError(error)) {
+          setUseLocalData(true);
+          setSchemaErrorMessage(error.message);
+          toast.warning(
+            "Connexion Supabase indisponible. Fermeture appliquée en local uniquement."
+          );
+          switchedToLocal = true;
+          patchLocalLobby(lobby.id, { status: "closed" });
+        } else {
+          toast.error("Impossible de fermer le salon.");
+          return;
+        }
+      } else {
+        invalidateLobbyQueries();
+      }
+    }
+
+    if (useLocalData || switchedToLocal) {
+      syncLocalLobbies();
     }
 
     toast.success("Salon fermé.");
@@ -297,6 +518,19 @@ export default function Lobby() {
                 </Button>
               </div>
 
+              {schemaErrorMessage && (
+                <Alert className="mb-4 border-dashed border-chess-gold/40 bg-background/60">
+                  <AlertTitle className="flex items-center gap-2 text-chess-gold">
+                    Mode local activé
+                  </AlertTitle>
+                  <AlertDescription className="text-sm text-muted-foreground">
+                    Les salons sont enregistrés uniquement sur cet appareil car Supabase a renvoyé :
+                    <span className="block font-medium text-foreground mt-1">{schemaErrorMessage}</span>
+                    Vous pouvez continuer à tester l'interface, mais les autres joueurs ne verront pas ces salons.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {lobbyQuery.isLoading ? (
                 <div className="space-y-4">
                   {[1, 2, 3].map((skeleton) => (
@@ -386,19 +620,48 @@ export default function Lobby() {
                 Découvrez les 30 variantes disponibles : chaque salon applique une règle spéciale qui transforme votre
                 façon de jouer. Sélectionnez simplement une salle pour lancer une partie avec cette variante.
               </p>
-              <ScrollArea className="max-h-[420px] pr-4">
+              <ScrollArea className="h-[420px] pr-4">
                 <div className="grid gap-4 md:grid-cols-2">
-                  {variantLobbyRooms.map((room) => (
-                    <div
-                      key={room.id}
-                      className="p-4 rounded-xl border border-border bg-background/60 hover:bg-background/80 transition-colors"
-                    >
-                      <h3 className="text-lg font-semibold text-chess-gold">{room.title}</h3>
-                      <p className="text-sm text-muted-foreground leading-relaxed">{room.description}</p>
-                    </div>
-                  ))}
+                  {variantLobbyRooms.map((room) => {
+                    const isSelected = selectedVariant?.id === room.id;
+                    return (
+                      <button
+                        key={room.id}
+                        type="button"
+                        onClick={() => setSelectedVariant(room)}
+                        className={cn(
+                          "text-left p-4 rounded-xl border bg-background/60 transition-all hover:bg-background/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-chess-gold focus-visible:ring-offset-2",
+                          isSelected
+                            ? "border-chess-gold shadow-lg shadow-chess-gold/20"
+                            : "border-border"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="text-lg font-semibold text-chess-gold">{room.title}</h3>
+                          {isSelected && <Badge variant="secondary">Sélectionné</Badge>}
+                        </div>
+                        <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{room.description}</p>
+                      </button>
+                    );
+                  })}
                 </div>
               </ScrollArea>
+              <div className="rounded-lg border border-dashed border-border bg-background/60 p-4">
+                {selectedVariant ? (
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-wide text-chess-gold">Variante sélectionnée</p>
+                    <h3 className="text-lg font-semibold text-foreground">{selectedVariant.title}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{selectedVariant.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Lancer la partie avec cette règle personnalisée sera possible une fois votre moteur de variantes intégré.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Cliquez sur une variante pour la surligner, mémoriser sa description et préparer votre prochaine partie.
+                  </p>
+                )}
+              </div>
             </Card>
           </div>
         </div>
