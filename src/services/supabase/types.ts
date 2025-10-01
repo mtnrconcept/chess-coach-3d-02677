@@ -80,6 +80,33 @@ export type Database = {
         }
         Relationships: []
       }
+      puzzles: {
+        Row: {
+          best_line: Json
+          created_at: string
+          fen: string
+          id: string
+          source: string
+          theme: string[]
+        }
+        Insert: {
+          best_line: Json
+          created_at?: string
+          fen: string
+          id?: string
+          source?: string
+          theme?: string[]
+        }
+        Update: {
+          best_line?: Json
+          created_at?: string
+          fen?: string
+          id?: string
+          source?: string
+          theme?: string[]
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
