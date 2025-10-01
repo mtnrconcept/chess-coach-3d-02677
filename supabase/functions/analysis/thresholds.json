@@ -1,0 +1,37 @@
+{
+  "default": {
+    "ok": 0.15,
+    "inaccuracy": 0.6,
+    "mistake": 1.8,
+    "blunder": 3.5
+  },
+  "brackets": [
+    {
+      "maxElo": 1200,
+      "thresholds": {
+        "ok": 0.2,
+        "inaccuracy": 0.8,
+        "mistake": 2.2,
+        "blunder": 4.0
+      }
+    },
+    {
+      "maxElo": 1600,
+      "thresholds": {
+        "ok": 0.18,
+        "inaccuracy": 0.7,
+        "mistake": 2.0,
+        "blunder": 3.8
+      }
+    },
+    {
+      "maxElo": 2000,
+      "thresholds": {
+        "ok": 0.16,
+        "inaccuracy": 0.65,
+        "mistake": 1.9,
+        "blunder": 3.6
+      }
+    }
+  ]
+}
