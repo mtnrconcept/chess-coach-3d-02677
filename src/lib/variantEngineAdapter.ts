@@ -1,4 +1,5 @@
 import { Chess } from "chess.js";
+import { isKingInCheck } from "./chessAnalysis";
 import type {
   Board,
   Color,
@@ -261,7 +262,7 @@ export function createChessJsEngineAdapter(chess: Chess): ChessJsEngineAdapter {
       const fenParts = fen.split(" ");
       fenParts[1] = color === "white" ? "w" : "b";
       temp.load(fenParts.join(" "));
-      return temp.inCheck();
+      return isKingInCheck(temp);
     },
     isLegalStandardMove(state, move) {
       if (needsSync) {
