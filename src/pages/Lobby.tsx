@@ -54,6 +54,7 @@ export default function Lobby() {
   const [selectedTime, setSelectedTime] = useState(timeControls[2].id);
   const [selectedElo, setSelectedElo] = useState(eloLevels[1].id);
   const [coachingMode, setCoachingMode] = useState(false);
+  const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
 
   const selectedTimeConfig = useMemo(
     () => timeControls.find((control) => control.id === selectedTime) ?? timeControls[0],
@@ -384,16 +385,57 @@ export default function Lobby() {
               </div>
               <p className="text-sm text-muted-foreground">
                 Découvrez les 30 variantes disponibles : chaque salon applique une règle spéciale qui transforme votre
-                façon de jouer. Sélectionnez simplement une salle pour lancer une partie avec cette variante.
+                façon de jouer. Sélectionnez une variante pour lancer une partie.
               </p>
+              
+              {selectedVariant && (
+                <div className="flex items-center gap-3 p-4 bg-chess-gold/10 border border-chess-gold/30 rounded-lg">
+                  <Badge variant="default" className="bg-chess-gold text-background">
+                    {variantLobbyRooms.find(r => r.id === selectedVariant)?.title}
+                  </Badge>
+                  <Button 
+                    className="ml-auto hover-lift" 
+                    variant="chess"
+                    onClick={() => {
+                      const variant = variantLobbyRooms.find(r => r.id === selectedVariant);
+                      navigate("/game", {
+                        state: {
+                          timeControl: {
+                            name: selectedTimeConfig.label,
+                            time: selectedTimeConfig.id,
+                            minutes: selectedTimeConfig.minutes,
+                            increment: selectedTimeConfig.increment,
+                            description: "Partie avec variante",
+                          },
+                          eloLevel: { name: selectedEloConfig.label, elo: selectedEloConfig.label, color: "bg-blue-500" },
+                          coachingMode: false,
+                          variant: variant,
+                        },
+                      });
+                    }}
+                  >
+                    Lancer la partie
+                  </Button>
+                </div>
+              )}
+
               <ScrollArea className="max-h-[420px] pr-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   {variantLobbyRooms.map((room) => (
                     <div
                       key={room.id}
-                      className="p-4 rounded-xl border border-border bg-background/60 hover:bg-background/80 transition-colors"
+                      onClick={() => setSelectedVariant(room.id)}
+                      className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                        selectedVariant === room.id
+                          ? 'border-chess-gold bg-chess-gold/20 ring-2 ring-chess-gold/50'
+                          : 'border-border bg-background/60 hover:bg-background/80 hover:border-chess-gold/50'
+                      }`}
                     >
-                      <h3 className="text-lg font-semibold text-chess-gold">{room.title}</h3>
+                      <h3 className={`text-lg font-semibold ${
+                        selectedVariant === room.id ? 'text-chess-gold' : 'text-chess-gold/80'
+                      }`}>
+                        {room.title}
+                      </h3>
                       <p className="text-sm text-muted-foreground leading-relaxed">{room.description}</p>
                     </div>
                   ))}
