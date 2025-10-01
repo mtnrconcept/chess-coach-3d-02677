@@ -467,15 +467,32 @@ const RulePawnFusion: RulePlugin = {
   name: 'Pions Fusion',
   description: 'Deux pions alliés adjacents peuvent fusionner en une super-pièce qui se déplace comme une tour ou un fou.',
   onGenerateExtraMoves(state, pos, piece, api) {
-    if (piece.type !== 'pawn') return [];
-    const moves: Move[] = [];
-    forEachNeighbor(pos, (n) => {
-      const p2 = api.getPieceAt(state, n);
-      if (p2?.type === 'pawn' && p2.color === piece.color) {
-        moves.push({ from: clone(pos), to: clone(n), meta: { special: 'pawn_fusion' } });
+    // Cas 1: pion normal qui peut fusionner avec un voisin
+    if (piece.type === 'pawn') {
+      const moves: Move[] = [];
+      forEachNeighbor(pos, (n) => {
+        const p2 = api.getPieceAt(state, n);
+        if (p2?.type === 'pawn' && p2.color === piece.color) {
+          moves.push({ from: clone(pos), to: clone(n), meta: { special: 'pawn_fusion' } });
+        }
+      });
+      return moves;
+    }
+    // Cas 2: si super-pièce (rook avec alt bishop), autoriser déplacements de fou en plus
+    if (piece.type === 'rook' && piece.tags?.super) {
+      const moves: Move[] = [];
+      for (const d of dirsBishop) {
+        const squares = squaresOnRayUntil(state, api, pos, d);
+        for (const to of squares) {
+          const t = api.getPieceAt(state, to);
+          if (t?.color === piece.color) break;
+          moves.push({ from: clone(pos), to, meta:{ special:'superpiece_bishop' } });
+          if (t) break;
+        }
       }
-    });
-    return moves;
+      return moves;
+    }
+    return [];
   },
   onBeforeMoveApply(state, move, api) {
     if (move.meta?.special === 'pawn_fusion') {
@@ -493,23 +510,6 @@ const RulePawnFusion: RulePlugin = {
       };
     }
     return { allow: true };
-  },
-  onGenerateExtraMoves(state, pos, piece, api) {
-    // si super-pièce (rook avec alt bishop), autoriser déplacements de fou en plus
-    if (piece.type === 'rook' && piece.tags?.super) {
-      const moves: Move[] = [];
-      for (const d of dirsBishop) {
-        const squares = squaresOnRayUntil(state, api, pos, d);
-        for (const to of squares) {
-          const t = api.getPieceAt(state, to);
-          if (t?.color === piece.color) break;
-          moves.push({ from: clone(pos), to, meta:{ special:'superpiece_bishop' } });
-          if (t) break;
-        }
-      }
-      return moves;
-    }
-    return [];
   }
 };
 
@@ -518,8 +518,6 @@ const RuleAirDrop: RulePlugin = {
   id: 'airdrop',
   name: 'Invasion Aérienne',
   description: 'Tous les 10 coups, parachuter une pièce capturée dans son propre camp (case vide).',
-  onGenerateExtraMoves(state, pos, piece, api) { return []; },
-  onBeforeMoveApply(state, move) { return { allow: true }; },
   onTurnStart(state, api) {
     const me = state.turn;
     const ready = ((state.moveNumber || 0) % 10)===0;
@@ -532,13 +530,13 @@ const RuleAirDrop: RulePlugin = {
     if (!state.flags[me].airdrop_ready) return [];
     const gy = state.graveyard[me];
     if (!gy || gy.length===0) return [];
-    // ne proposer le menu qu’une fois (ex: sur ton roi)
+    // ne proposer le menu qu'une fois (ex: sur ton roi)
     if (piece.type !== 'king') return [];
     const extras: Move[] = [];
     for (let x=0;x<8;x++) for (let y= (me==='white'?4:0); y< (me==='white'?8:4); y++) {
       const to = {x,y};
       if (api.getPieceAt(state, to)) continue;
-      // on parachute la 1ère pièce du cimetière pour l’exemple (on peut stocker le choix ailleurs)
+      // on parachute la 1ère pièce du cimetière pour l'exemple (on peut stocker le choix ailleurs)
       extras.push({ from: clone(to), to: clone(to), meta:{ special:'airdrop', pickIndex:0 }});
     }
     return extras;
