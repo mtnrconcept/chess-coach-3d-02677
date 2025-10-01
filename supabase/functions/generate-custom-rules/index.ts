@@ -11,6 +11,17 @@ type DifficultyLevel = 'beginner' | 'intermediate' | 'advanced';
 interface CustomRulesRequest {
   description: string;
   difficulty?: DifficultyLevel;
+  ruleName?: string;
+}
+
+interface CustomRulesResponse {
+  rules: string;
+  difficulty: DifficultyLevel;
+  ruleId: string;
+  ruleName: string;
+  pluginCode: string;
+  warning?: string;
+  pluginWarning?: string;
 }
 
 const difficultyLabels: Record<DifficultyLevel, string> = {
@@ -58,6 +69,45 @@ const buildFallbackRules = (description: string, difficulty: DifficultyLevel) =>
   ].join('\n');
 };
 
+const slugify = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+
+const buildFallbackPlugin = (
+  ruleId: string,
+  ruleName: string,
+  rules: string,
+  difficulty: DifficultyLevel,
+): string => `const rule = {
+  id: '${ruleId}',
+  name: '${ruleName.replace(/'/g, "\\'")}',
+  description: 'Variante générée automatiquement (mode démo ${difficulty}).',
+  onAfterMoveApply(state, ctx, api) {
+    console.log('[demo-rule]', '${ruleId}', 'aucun effet automatique – appliquez les règles manuellement.');
+  },
+};
+
+module.exports = rule;
+`;
+
+const buildRuleNameSuggestion = (description: string, difficulty: DifficultyLevel) => {
+  const base = description.trim().split(/\n+/)[0]?.trim() ?? '';
+  if (base.length === 0) {
+    return `Variante ${difficultyLabels[difficulty]}`;
+  }
+
+  if (base.length <= 60) {
+    return base;
+  }
+
+  return `${base.slice(0, 57)}…`;
+};
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -79,7 +129,7 @@ serve(async (req) => {
       });
     }
 
-    const { description, difficulty = 'intermediate' } = body;
+    const { description, difficulty = 'intermediate', ruleName } = body;
 
     if (!description || typeof description !== 'string' || description.trim().length === 0) {
       return new Response(JSON.stringify({
@@ -95,17 +145,13 @@ serve(async (req) => {
       Deno.env.get('LOVABLE_GEMINI_API_KEY') ??
       Deno.env.get('GEMINI_API_KEY');
 
-    if (!geminiApiKey) {
-      const fallbackRules = buildFallbackRules(description, difficulty);
-      console.warn('No Gemini API key found. Returning fallback rules.');
-      return new Response(JSON.stringify({
-        rules: fallbackRules,
-        difficulty,
-        warning: "Mode démo : configurez la variable d'environnement GEMINI_API_KEY pour activer la génération IA."
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    const suggestedRuleName = ruleName && typeof ruleName === 'string' && ruleName.trim().length > 0
+      ? ruleName.trim()
+      : buildRuleNameSuggestion(description, difficulty);
+
+    const ruleBaseSlug = slugify(suggestedRuleName.length > 0 ? suggestedRuleName : description);
+    const uniqueSuffix = crypto.randomUUID().slice(0, 8);
+    const ruleId = ruleBaseSlug ? `${ruleBaseSlug}-${uniqueSuffix}` : `variant-${uniqueSuffix}`;
 
     const systemPrompt = `Tu es un expert en échecs et en conception de règles de jeu. Tu crées des règles d'échecs personnalisées qui sont:
 - Équilibrées et justes pour les deux joueurs
@@ -120,12 +166,18 @@ INSTRUCTIONS:
 - Donne des exemples concrets si nécessaire
 - Assure-toi que les règles sont jouables et logiques`;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const fallbackRules = buildFallbackRules(description, difficulty);
+
+    let customRules = fallbackRules;
+    let pluginCode = buildFallbackPlugin(ruleId, suggestedRuleName, fallbackRules, difficulty);
+    let warning: string | undefined;
+    let pluginWarning: string | undefined;
+
+    if (!geminiApiKey) {
+      warning = "Mode démo : configurez la variable d'environnement GEMINI_API_KEY pour activer la génération IA.";
+      console.warn('No Gemini API key found. Returning fallback rules & plugin.');
+    } else {
+      const payload = {
         systemInstruction: {
           role: 'system',
           parts: [{ text: systemPrompt }]
@@ -143,39 +195,117 @@ INSTRUCTIONS:
         generationConfig: {
           maxOutputTokens: 800
         }
-      }),
-    });
+      };
 
-    if (!response.ok) {
-      const errorData = await response.text();
-      console.error('Gemini API error:', errorData);
-      return new Response(JSON.stringify({
-        error: `Erreur lors de la génération des règles (${response.status}).`,
-        details: errorData,
-        rules: 'Impossible de générer les règles pour le moment. Veuillez réessayer.'
-      }), {
-        status: response.status,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
       });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error('Gemini API error:', errorData);
+        warning = `Erreur lors de la génération IA (${response.status}). Utilisation du mode hors-ligne.`;
+      } else {
+        const data = await response.json();
+        const generatedRules = data.candidates?.[0]?.content?.parts
+          ?.map((part: { text?: string }) => part.text ?? '')
+          .join('\n')
+          .trim();
+
+        if (generatedRules) {
+          customRules = generatedRules;
+        } else {
+          warning = 'La génération IA n’a pas renvoyé de règles exploitables. Utilisation du mode hors-ligne.';
+        }
+      }
+
+      // Try to generate automation code if the API key is available
+      try {
+        const pluginPrompt = `Tu génères du code JavaScript (CommonJS) qui exporte un objet respectant l'interface suivante :
+interface RulePlugin {
+  id: string;
+  name: string;
+  description: string;
+  onGenerateExtraMoves?(state, pos, piece, api): Move[];
+  onBeforeMoveApply?(state, move, api): { allow: boolean; transform?: (s) => void; reason?: string };
+  onAfterMoveApply?(state, ctx, api): void;
+  onTurnStart?(state, api): void;
+}
+
+Le moteur fourni ressemble à chess.js. Tu peux utiliser un helper "helpers" passé en paramètre qui expose :
+- helpers.clone(value) : clone profond
+- helpers.eqPos(a, b)
+- helpers.dirs : { rook: Pos[], bishop: Pos[] }
+- helpers.neighbors(pos) : renvoie les 8 cases autour
+- helpers.createMove(from, to, meta?) : construit un Move
+- helpers.ruleId : identifiant imposé (${ruleId})
+
+Rédige du code modulaire, sans dépendances externes, en respectant strictement CommonJS (module.exports = rule). Le code doit automatiser la variante décrite ci-dessous en respectant les règles classiques des échecs. N'invente pas de nouvelles pièces.
+VARIANTE: ${suggestedRuleName}
+DIFFICULTÉ: ${difficultyLabels[difficulty]}
+DESCRIPTION UTILISATEUR: ${description}
+RÈGLES DÉTAILLÉES:\n${customRules}`;
+
+        const pluginResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            systemInstruction: {
+              role: 'system',
+              parts: [{ text: 'Tu es un expert en développement TypeScript et en variantes d\'échecs.' }]
+            },
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: pluginPrompt }]
+              }
+            ],
+            generationConfig: {
+              maxOutputTokens: 1200
+            }
+          }),
+        });
+
+        if (pluginResponse.ok) {
+          const pluginData = await pluginResponse.json();
+          const generatedCode = pluginData.candidates?.[0]?.content?.parts
+            ?.map((part: { text?: string }) => part.text ?? '')
+            .join('\n')
+            .trim();
+
+          if (generatedCode && generatedCode.includes(ruleId)) {
+            pluginCode = generatedCode;
+          } else {
+            pluginWarning = 'La génération du code automatique a échoué. Utilisation d’un squelette de règle.';
+          }
+        } else {
+          const pluginError = await pluginResponse.text();
+          console.error('Gemini plugin generation error:', pluginError);
+          pluginWarning = 'Le code de la variante n’a pas pu être généré automatiquement.';
+        }
+      } catch (pluginError) {
+        console.error('Failed to generate plugin code:', pluginError);
+        pluginWarning = 'La génération du code automatique a rencontré une erreur.';
+      }
     }
 
-    const data = await response.json();
-    const customRules = data.candidates?.[0]?.content?.parts
-      ?.map((part: { text?: string }) => part.text ?? '')
-      .join('\n')
-      .trim();
-
-    if (!customRules) {
-      console.error('Gemini API response did not contain any content:', data);
-      throw new Error('Aucune règle générée par le modèle Gemini');
-    }
-
-    console.log('Generated custom rules:', customRules);
-
-    return new Response(JSON.stringify({ 
+    const responsePayload: CustomRulesResponse = {
       rules: customRules,
-      difficulty
-    }), {
+      difficulty,
+      ruleId,
+      ruleName: suggestedRuleName,
+      pluginCode,
+      warning,
+      pluginWarning,
+    };
+
+    return new Response(JSON.stringify(responsePayload), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
