@@ -7,6 +7,7 @@ import { OrbitControls, PerspectiveCamera, Environment } from "@react-three/drei
 import type { DirectionalLight } from "three";
 import { FbxChessSet } from "@/components/FbxChessSet";
 import { Chess } from "chess.js";
+import type { Move } from "chess.js";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,12 @@ import { MoveHistory } from "@/components/MoveHistory";
 import { CoachingPanel } from "@/components/CoachingPanel";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  analyzePlayerMove,
+  analyzeAIMove,
+  withEngineAdvice,
+  type CoachingInsights,
+} from "@/lib/chessAnalysis";
 
 function AnimatedCamera() {
   const cameraRef = useRef<any>(null);
@@ -64,9 +71,11 @@ export default function ChessGame() {
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [possibleMoves, setPossibleMoves] = useState<string[]>([]);
   const [lastMove, setLastMove] = useState<{ from: string; to: string } | null>(null);
-  const [moveHistory, setMoveHistory] = useState<any[]>([]);
+  const [moveHistory, setMoveHistory] = useState<Move[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [coachingComment, setCoachingComment] = useState<string>("");
+  const [analysisDetails, setAnalysisDetails] = useState<CoachingInsights | null>(null);
+  const [isCoachAnalyzing, setIsCoachAnalyzing] = useState(false);
   
   // Game mode: 'ai' or 'local' (player vs player)
   const [gameMode] = useState<'ai' | 'local'>(gameState.gameMode || 'ai');
@@ -82,6 +91,8 @@ export default function ChessGame() {
   const boardRef = useRef<any>();
   const playerMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const aiMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const moveHistoryRef = useRef<Move[]>([]);
+  const coachingRequestId = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -93,6 +104,59 @@ export default function ChessGame() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    moveHistoryRef.current = moveHistory;
+  }, [moveHistory]);
+
+  const provideCoachingFeedback = async (move: Move, updatedHistory: Move[], isOpponentMove = false) => {
+    if (!gameState.coachingMode) return;
+
+    const localInsights = isOpponentMove
+      ? analyzeAIMove({ chess, move, history: updatedHistory })
+      : analyzePlayerMove({ chess, move, history: updatedHistory });
+
+    setAnalysisDetails(localInsights);
+    setCoachingComment(localInsights.comment);
+
+    const requestId = ++coachingRequestId.current;
+    setIsCoachAnalyzing(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('chess-coach', {
+        body: {
+          position: chess.fen(),
+          lastMove: {
+            from: move.from,
+            to: move.to,
+            san: move.san,
+          },
+          gamePhase: localInsights.gamePhase,
+          moveCount: updatedHistory.length,
+        },
+      });
+
+      if (error) {
+        console.error(isOpponentMove ? 'Error getting AI coaching for AI move:' : 'Error getting AI coaching:', error);
+        return;
+      }
+
+      if (data?.coaching) {
+        if (coachingRequestId.current !== requestId) {
+          return;
+        }
+        const enriched = withEngineAdvice(localInsights, data.coaching, isOpponentMove ? 'IA' : undefined);
+        setAnalysisDetails(enriched);
+        setCoachingComment(enriched.comment);
+      }
+    } catch (error) {
+      console.error(isOpponentMove ? 'Error analyzing AI move:' : 'Error analyzing move:', error);
+    } finally {
+      if (coachingRequestId.current === requestId) {
+        setIsCoachAnalyzing(false);
+      }
+    }
+  };
 
   useEffect(() => {
     if (!gameState.timeControl) {
@@ -137,7 +201,9 @@ export default function ChessGame() {
         if (move) {
           setGamePosition(chess.fen());
           setLastMove({ from: selectedSquare, to: square });
-          setMoveHistory([...moveHistory, move]);
+          const updatedHistory = [...moveHistory, move];
+          setMoveHistory(updatedHistory);
+          moveHistoryRef.current = updatedHistory;
           setCurrentPlayer(chess.turn());
           setIsWhiteTurn(!isWhiteTurn);
           
@@ -152,7 +218,7 @@ export default function ChessGame() {
 
           // Coaching mode comment
           if (gameState.coachingMode) {
-            analyzeMove(move);
+            void provideCoachingFeedback(move, updatedHistory);
           }
 
           // AI move after small delay (only in AI mode)
@@ -222,7 +288,9 @@ export default function ChessGame() {
         console.log('AI move executed:', move);
         setGamePosition(chess.fen());
         setLastMove({ from: move.from, to: move.to });
-        setMoveHistory(prev => [...prev, move]);
+        const updatedHistory = [...moveHistoryRef.current, move];
+        setMoveHistory(updatedHistory);
+        moveHistoryRef.current = updatedHistory;
         setCurrentPlayer(chess.turn());
         setIsWhiteTurn(chess.turn() === 'w');
         
@@ -236,84 +304,13 @@ export default function ChessGame() {
         }
 
         if (gameState.coachingMode) {
-          analyzeAIMove(move);
+          void provideCoachingFeedback(move, updatedHistory, true);
         }
       }
 
       setIsThinking(false);
       aiMoveTimeoutRef.current = null;
     }, 800 + Math.random() * 1200); // Faster thinking time
-  };
-
-  const analyzeMove = async (move: any) => {
-    if (!gameState.coachingMode) return;
-    
-    try {
-      setCoachingComment("Analyse en cours...");
-      
-      // Determine game phase
-      const moveCount = moveHistory.length + 1;
-      let gamePhase: 'opening' | 'middlegame' | 'endgame' = 'opening';
-      if (moveCount > 20) gamePhase = 'middlegame';
-      if (chess.board().flat().filter(Boolean).length <= 10) gamePhase = 'endgame';
-
-      const { data, error } = await supabase.functions.invoke('chess-coach', {
-        body: {
-          position: chess.fen(),
-          lastMove: {
-            from: move.from,
-            to: move.to,
-            san: move.san
-          },
-          gamePhase,
-          moveCount
-        }
-      });
-
-      if (error) {
-        console.error('Error getting AI coaching:', error);
-        setCoachingComment("Continuez à jouer, chaque coup est une leçon !");
-      } else {
-        setCoachingComment(data.coaching || "Bon coup ! Continuez ainsi.");
-      }
-    } catch (error) {
-      console.error('Error analyzing move:', error);
-      setCoachingComment("Excellente stratégie ! Poursuivez votre plan.");
-    }
-  };
-
-  const analyzeAIMove = async (move: any) => {
-    if (!gameState.coachingMode) return;
-    
-    try {
-      const moveCount = moveHistory.length + 1;
-      let gamePhase: 'opening' | 'middlegame' | 'endgame' = 'opening';
-      if (moveCount > 20) gamePhase = 'middlegame';
-      if (chess.board().flat().filter(Boolean).length <= 10) gamePhase = 'endgame';
-
-      const { data, error } = await supabase.functions.invoke('chess-coach', {
-        body: {
-          position: chess.fen(),
-          lastMove: {
-            from: move.from,
-            to: move.to,
-            san: move.san
-          },
-          gamePhase,
-          moveCount
-        }
-      });
-
-      if (error) {
-        console.error('Error getting AI coaching for AI move:', error);
-        setCoachingComment("IA: L'ordinateur joue un coup solide.");
-      } else {
-        setCoachingComment(`IA: ${data.coaching || "L'ordinateur maintient la pression."}`);
-      }
-    } catch (error) {
-      console.error('Error analyzing AI move:', error);
-      setCoachingComment("IA: Coup intéressant de l'ordinateur !");
-    }
   };
 
   const handleResign = () => {
@@ -380,7 +377,11 @@ export default function ChessGame() {
             />
             
             {gameState.coachingMode && (
-              <CoachingPanel comment={coachingComment} />
+              <CoachingPanel
+                comment={coachingComment}
+                analysis={analysisDetails}
+                isAnalyzing={isCoachAnalyzing}
+              />
             )}
             
             <MoveHistory moves={moveHistory} />

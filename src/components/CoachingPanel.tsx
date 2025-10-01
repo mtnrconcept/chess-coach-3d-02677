@@ -1,28 +1,47 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Brain, MessageCircle, Trophy, AlertCircle } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Brain, MessageCircle, Trophy, AlertCircle, Sparkles } from "lucide-react";
 import useSpeechSynthesis from "@/hooks/use-speech";
+import type { CoachingInsights } from "@/lib/chessAnalysis";
 
 interface CoachingPanelProps {
   comment: string;
+  analysis?: CoachingInsights | null;
+  isAnalyzing?: boolean;
 }
 
-export function CoachingPanel({ comment }: CoachingPanelProps) {
-  useSpeechSynthesis(comment.includes("Analyse en cours") ? "" : comment);
-  const getCommentType = (text: string) => {
-    if (text.includes("Excellent") || text.includes("Parfait") || text.includes("Bonne")) {
-      return { icon: Trophy, color: "text-green-400", bg: "bg-green-500/10", label: "Excellent" };
+export function CoachingPanel({ comment, analysis, isAnalyzing }: CoachingPanelProps) {
+  const fallbackSpeech = comment.includes("Analyse en cours") ? "" : comment;
+  const spokenText = analysis?.voiceLine ?? fallbackSpeech;
+  useSpeechSynthesis(spokenText, {
+    voicePreferences: ["Google français", "Amelie", "Thomas"],
+    rate: 0.94,
+    pitch: 1.04,
+    volume: 0.9,
+  });
+
+  const getCommentType = () => {
+    if (isAnalyzing) {
+      return { icon: Brain, color: "text-blue-400", bg: "bg-blue-500/10", label: "Analyse" };
     }
-    if (text.includes("Attention") || text.includes("passif")) {
-      return { icon: AlertCircle, color: "text-yellow-400", bg: "bg-yellow-500/10", label: "Attention" };
+    if (analysis?.engineAdvice) {
+      return { icon: Brain, color: "text-sky-400", bg: "bg-sky-500/10", label: "Analyse experte" };
     }
-    if (text.includes("IA:")) {
-      return { icon: Brain, color: "text-blue-400", bg: "bg-blue-500/10", label: "Analyse IA" };
+    if (analysis?.riskWarnings?.length) {
+      return { icon: AlertCircle, color: "text-amber-400", bg: "bg-amber-500/10", label: "Attention" };
+    }
+    if (analysis?.advantage === "white" || analysis?.advantage === "black") {
+      return { icon: Trophy, color: "text-emerald-400", bg: "bg-emerald-500/10", label: "Avantage" };
     }
     return { icon: MessageCircle, color: "text-primary", bg: "bg-primary/10", label: "Conseil" };
   };
 
-  const { icon: Icon, color, bg, label } = getCommentType(comment);
+  const { icon: Icon, color, bg, label } = getCommentType();
+  const evaluationPercent = analysis ? Math.max(0, Math.min(100, Math.round(50 + analysis.evaluation * 10))) : 50;
+  const evaluationLabel = analysis?.evaluationLabel ?? "Évaluation en cours";
+  const defaultComment = comment || "Analysez vos coups et ceux de l'adversaire pour progresser...";
+  const mainMessage = analysis?.comment ?? (isAnalyzing ? "Analyse en cours..." : defaultComment);
 
   return (
     <Card className={`p-4 gradient-card border-chess ${bg}`}>
@@ -35,35 +54,110 @@ export function CoachingPanel({ comment }: CoachingPanelProps) {
               {label}
             </Badge>
           </div>
+          {analysis?.opening && (
+            <div className="flex items-start justify-between rounded-md bg-background/60 px-3 py-2 text-xs">
+              <div>
+                <p className="font-medium">{analysis.opening.name}{analysis.opening.variation ? ` (${analysis.opening.variation})` : ""}</p>
+                <p className="text-muted-foreground">
+                  {analysis.opening.eco} • {analysis.opening.matchedMoves} coup{analysis.opening.matchedMoves > 1 ? "s" : ""}
+                </p>
+              </div>
+              <Badge variant="secondary" className="ml-2">
+                {analysis.gamePhase === "opening" ? "Ouverture" : analysis.gamePhase === "middlegame" ? "Milieu de jeu" : "Finale"}
+              </Badge>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="text-sm leading-relaxed">
-        {comment || "Analysez vos coups et ceux de l'adversaire pour progresser..."}
+        {analysis?.engineAdvice && analysis.baseComment !== analysis.comment && (
+          <div className="mb-2 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Analyse instantanée :</span> {analysis.baseComment}
+          </div>
+        )}
+        {mainMessage || "Analysez vos coups et ceux de l'adversaire pour progresser..."}
       </div>
 
-      {/* Coaching tips */}
-      <div className="mt-4 pt-3 border-t border-border/30">
-        <div className="text-xs text-muted-foreground space-y-1">
-          <div className="flex items-center gap-2">
-            <div className="w-1 h-1 rounded-full bg-primary" />
-            <span>Principes : Développement, Sécurité du roi, Contrôle du centre</span>
+      {analysis && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-xs font-semibold">
+            <span>Évaluation</span>
+            <span className={
+              analysis.advantage === "white"
+                ? "text-emerald-400"
+                : analysis.advantage === "black"
+                  ? "text-rose-400"
+                  : "text-muted-foreground"
+            }>
+              {evaluationLabel} ({analysis.evaluation >= 0 ? "+" : ""}{analysis.evaluation.toFixed(2)})
+            </span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-1 h-1 rounded-full bg-accent" />
-            <span>Cherchez les tactiques : Fourchettes, Clouages, Découvertes</span>
+          <Progress value={evaluationPercent} className="h-2 mt-2" />
+          <div className="mt-1 flex justify-between text-[10px] text-muted-foreground uppercase tracking-wide">
+            <span>Avantage noir</span>
+            <span>Équilibre</span>
+            <span>Avantage blanc</span>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Animated thinking indicator */}
-      <div className="mt-3 flex items-center gap-2">
+      {analysis?.tacticHighlight && (
+        <div className="mt-4 flex items-center gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+          <Sparkles className="h-3 w-3" />
+          <span>{analysis.tacticHighlight}</span>
+        </div>
+      )}
+
+      {analysis?.keyIdeas?.length ? (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Idées clés</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {analysis.keyIdeas.map((idea, index) => (
+              <li key={index} className="flex items-start gap-2">
+                <div className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
+                <span>{idea}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {analysis?.suggestions?.length ? (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Plans recommandés</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {analysis.suggestions.map((tip, index) => (
+              <li key={index} className="flex items-start gap-2">
+                <div className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent" />
+                <span>{tip}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {analysis?.riskWarnings?.length ? (
+        <div className="mt-4 rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          <div className="mb-1 flex items-center gap-2 font-semibold">
+            <AlertCircle className="h-3.5 w-3.5" />
+            <span>Points de vigilance</span>
+          </div>
+          <ul className="space-y-1">
+            {analysis.riskWarnings.map((warning, index) => (
+              <li key={index}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
         <div className="flex space-x-1">
-          <div className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0s' }}></div>
-          <div className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-          <div className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0s' }} />
+          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.2s' }} />
+          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0.4s' }} />
         </div>
-        <span className="text-xs text-muted-foreground">Analyse en temps réel</span>
+        <span>{isAnalyzing ? "Analyse experte en cours" : "Analyse en temps réel"}</span>
       </div>
     </Card>
   );
