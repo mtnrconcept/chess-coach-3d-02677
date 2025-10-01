@@ -1437,20 +1437,20 @@ export const lobbyRooms: LobbyRoom[] = ALL_RULES.map((r, i) => ({
 Bon jeu ! 🎯
 */
 
-Comment brancher à ton moteur (résumé simple)
-•Crée un adapter qui implémente EngineApi pour ton moteur actuel (ou chess.js).
-•Lance une partie avec une règle du lobby :
-
-import { createMatch, lobbyRooms } from './variant-chess-lobby';
-
-// engine: ton adapter EngineApi
-// initialState: position initiale (board rempli, flags init {}, moveNumber=0, turn='white', graveyard {white:[],black:[]})
-const room = lobbyRooms[0]; // ex: salle 1
-const match = createMatch(engine, initialState, room.ruleId, /*vsAI=*/true);
-
-Et pour jouer:
-
-// coups spéciaux sup (en plus des coups standard de ton moteur)
-const extras = generateMoves(match, {x:1,y:7}); 
-// ...ou juste playMove pour un coup standard :
-const ok = playMove(match, { from:{x:4,y:6}, to:{x:4,y:4} });
+// Comment brancher à ton moteur (résumé simple)
+// • Crée un adapter qui implémente EngineApi pour ton moteur actuel (ou chess.js).
+// • Lance une partie avec une règle du lobby :
+//
+// import { createMatch, lobbyRooms } from "./variant-chess-lobby";
+//
+// // engine: ton adapter EngineApi
+// // initialState: position initiale (board rempli, flags init {}, moveNumber=0, turn='white', graveyard {white:[],black:[]})
+// const room = lobbyRooms[0]; // ex: salle 1
+// const match = createMatch(engine, initialState, room.ruleId, /*vsAI=*/ true);
+//
+// Et pour jouer:
+//
+// // coups spéciaux sup (en plus des coups standard de ton moteur)
+// const extras = generateMoves(match, { x: 1, y: 7 });
+// // ...ou juste playMove pour un coup standard :
+// const ok = playMove(match, { from: { x: 4, y: 6 }, to: { x: 4, y: 4 } });
