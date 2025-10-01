@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/services/supabase/client";
+import type { Tables } from "@/services/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { lobbyRooms as variantLobbyRooms } from "@/variant-chess-lobby";
+import { lobbyRooms as embeddedLobbyRooms, getRuleById } from "@/variant-chess-lobby";
 import { toast } from "sonner";
 import { Clock, Users, Sword, Hourglass, PlusCircle, XCircle, AlertTriangle } from "lucide-react";
 
@@ -68,6 +69,21 @@ type LobbyRow = {
   created_at: string;
 };
 
+type VariantRow = Tables<'chess_variants'>;
+
+type VariantLobbyEntry = {
+  id: string;
+  title: string;
+  ruleId: string | null;
+  description: string;
+  rules: string;
+  source: VariantRow['source'];
+  difficulty: string | null;
+  prompt: string | null;
+  createdAt: string | null;
+  displayOrder: number | null;
+};
+
 export default function Lobby() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -76,11 +92,13 @@ export default function Lobby() {
   const [selectedTime, setSelectedTime] = useState(timeControls[2].id);
   const [selectedElo, setSelectedElo] = useState(eloLevels[1].id);
   const [coachingMode, setCoachingMode] = useState(false);
-  const [selectedVariant, setSelectedVariant] = useState<string | null>(() => variantLobbyRooms?.[0]?.id ?? null);
+  const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [gameMode, setGameMode] = useState<'ai' | 'local'>('ai');
   const [localLobbies, setLocalLobbies] = useState<LobbyRow[]>(() => readStoredLobbies());
   const [isFallback, setIsFallback] = useState(false);
   const [fallbackReason, setFallbackReason] = useState<string | null>(null);
+  const [isVariantFallback, setIsVariantFallback] = useState(false);
+  const [variantFallbackReason, setVariantFallbackReason] = useState<string | null>(null);
 
   const selectedTimeConfig = useMemo(
     () => timeControls.find((control) => control.id === selectedTime) ?? timeControls[0],
@@ -90,10 +108,115 @@ export default function Lobby() {
     () => eloLevels.find((level) => level.id === selectedElo) ?? eloLevels[0],
     [selectedElo]
   );
-  const selectedVariantData = useMemo(
-    () => variantLobbyRooms?.find((room) => room.id === selectedVariant) ?? null,
-    [selectedVariant]
+  const variantQuery = useQuery<VariantRow[], Error>({
+    queryKey: ["chess-variants"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("chess_variants")
+        .select("*")
+        .order("display_order", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      return (data ?? []) as VariantRow[];
+    },
+  });
+
+  const remoteVariants = useMemo<VariantLobbyEntry[]>(() => {
+    if (!variantQuery.data) {
+      return [];
+    }
+
+    return variantQuery.data.map((row) => ({
+      id: row.id,
+      title: row.title,
+      ruleId: row.rule_id,
+      description: row.summary,
+      rules: row.rules,
+      source: row.source,
+      difficulty: row.difficulty ?? null,
+      prompt: row.prompt ?? null,
+      createdAt: row.created_at,
+      displayOrder: row.display_order ?? null,
+    }));
+  }, [variantQuery.data]);
+
+  const embeddedVariants = useMemo<VariantLobbyEntry[]>(
+    () =>
+      embeddedLobbyRooms.map((room, index) => ({
+        id: room.ruleId,
+        title: room.title,
+        ruleId: room.ruleId,
+        description: room.description,
+        rules: room.description,
+        source: 'builtin',
+        difficulty: null,
+        prompt: null,
+        createdAt: null,
+        displayOrder: index + 1,
+      })),
+    []
   );
+
+  const variantRooms = remoteVariants.length > 0 ? remoteVariants : embeddedVariants;
+
+  const selectedVariantData = useMemo(
+    () => variantRooms.find((room) => room.id === selectedVariant) ?? null,
+    [selectedVariant, variantRooms]
+  );
+
+  const selectedVariantRule = useMemo(
+    () => (selectedVariantData?.ruleId ? getRuleById(selectedVariantData.ruleId) : null),
+    [selectedVariantData?.ruleId]
+  );
+
+  const isVariantAutomated = Boolean(selectedVariantRule);
+  const variantCount = variantRooms.length;
+  const isGeneratedVariant = selectedVariantData?.source === 'generated';
+  const isVariantRuleMissing = Boolean(selectedVariantData) && !selectedVariantData.ruleId;
+
+  const isVariantLoading = variantQuery.isLoading && remoteVariants.length === 0;
+
+  useEffect(() => {
+    if (variantQuery.isError) {
+      setIsVariantFallback(true);
+      setVariantFallbackReason(
+        variantQuery.error instanceof Error
+          ? variantQuery.error.message
+          : "Service des variantes indisponible."
+      );
+      return;
+    }
+
+    if (variantQuery.isSuccess) {
+      if (remoteVariants.length > 0) {
+        setIsVariantFallback(false);
+        setVariantFallbackReason(null);
+      } else {
+        setIsVariantFallback(true);
+        setVariantFallbackReason(
+          "Aucune variante n'a encore été enregistrée dans la base. La liste embarquée est utilisée."
+        );
+      }
+    }
+  }, [variantQuery.isError, variantQuery.isSuccess, variantQuery.error, remoteVariants]);
+
+  useEffect(() => {
+    if (variantRooms.length === 0) {
+      setSelectedVariant(null);
+      return;
+    }
+
+    setSelectedVariant((previous) => {
+      if (previous && variantRooms.some((room) => room.id === previous)) {
+        return previous;
+      }
+      return variantRooms[0]?.id ?? null;
+    });
+  }, [variantRooms]);
 
   const persistLocalLobbies = useCallback((next: LobbyRow[]) => {
     setLocalLobbies(next);
@@ -549,23 +672,46 @@ export default function Lobby() {
                   <h2 className="text-2xl font-semibold text-chess-gold">Variantes du lobby</h2>
                 </div>
                 <Badge variant="outline" className="text-xs uppercase tracking-widest text-chess-gold">
-                  {variantLobbyRooms?.length || 0} salons
+                  {variantCount} salons
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground">
-                Découvrez les 30 variantes disponibles : chaque salon applique une règle spéciale qui transforme votre
-                façon de jouer. Sélectionnez une variante pour lancer une partie.
+                Explorez les variantes disponibles : celles du catalogue embarqué et celles générées via l’outil IA.
+                Sélectionnez une variante pour lancer une partie adaptée à votre style.
               </p>
-              {!variantLobbyRooms || variantLobbyRooms.length === 0 ? (
+
+              {isVariantFallback && (
+                <Alert className="border-chess-gold/40 bg-chess-gold/10 text-foreground">
+                  <AlertTriangle className="h-5 w-5 text-chess-gold" />
+                  <AlertTitle className="text-sm font-semibold text-chess-gold">
+                    Liste de variantes embarquée
+                  </AlertTitle>
+                  <AlertDescription className="text-xs leading-relaxed text-muted-foreground">
+                    {variantFallbackReason ?? "La connexion au service distant est indisponible. Les variantes intégrées sont affichées par défaut."}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {isVariantLoading ? (
                 <div className="p-10 text-center text-muted-foreground bg-background/40 rounded-lg border border-border">
                   Chargement des variantes...
+                </div>
+              ) : variantRooms.length === 0 ? (
+                <div className="p-10 text-center text-muted-foreground bg-background/40 rounded-lg border border-border">
+                  Aucune variante n’est disponible pour le moment. Générez-en une depuis l’outil ou réessayez plus tard.
                 </div>
               ) : (
                 <div className="grid gap-6 md:grid-cols-[280px,1fr]">
                   <ScrollArea className="max-h-[420px] rounded-xl border border-border bg-background/40">
                     <div className="p-2 space-y-2">
-                      {variantLobbyRooms.map((room) => {
+                      {variantRooms.map((room) => {
                         const isSelected = selectedVariant === room.id;
+                        const createdLabel = room.createdAt
+                          ? new Intl.DateTimeFormat("fr-FR", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            }).format(new Date(room.createdAt))
+                          : null;
                         return (
                           <button
                             type="button"
@@ -581,15 +727,25 @@ export default function Lobby() {
                               <span className={`font-semibold ${isSelected ? 'text-chess-gold' : 'text-chess-gold/80'}`}>
                                 {room.title}
                               </span>
-                              {isSelected && (
-                                <span className="inline-flex items-center rounded-full border border-chess-gold/50 bg-chess-gold/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-chess-gold">
-                                  Sélectionné
-                                </span>
-                              )}
+                              <div className="flex items-center gap-2">
+                                {room.source === 'generated' && (
+                                  <span className="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">
+                                    IA
+                                  </span>
+                                )}
+                                {isSelected && (
+                                  <span className="inline-flex items-center rounded-full border border-chess-gold/50 bg-chess-gold/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-chess-gold">
+                                    Sélectionné
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
                               {room.description}
                             </p>
+                            {createdLabel && (
+                              <p className="mt-2 text-[10px] text-muted-foreground/80">Ajoutée le {createdLabel}</p>
+                            )}
                           </button>
                         );
                       })}
@@ -609,14 +765,37 @@ export default function Lobby() {
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span className="rounded-full border border-chess-gold/40 bg-background/70 px-3 py-1 font-semibold uppercase tracking-wide text-chess-gold">
-                            Règle&nbsp;: {selectedVariantData.ruleId}
+                            Source&nbsp;: {isGeneratedVariant ? 'IA' : 'Catalogue' }
                           </span>
                           <span className="rounded-full border border-border bg-background/70 px-3 py-1 font-medium">
-                            Cadence sélectionnée&nbsp;: {selectedTimeConfig.label}
+                            {selectedVariantData.ruleId
+                              ? `Règle : ${selectedVariantData.ruleId}`
+                              : 'Automatisation : manuelle'}
+                          </span>
+                          {selectedVariantData.difficulty && (
+                            <span className="rounded-full border border-border bg-background/70 px-3 py-1 font-medium">
+                              Difficulté&nbsp;: {selectedVariantData.difficulty}
+                            </span>
+                          )}
+                          <span className="rounded-full border border-border bg-background/70 px-3 py-1 font-medium">
+                            Cadence&nbsp;: {selectedTimeConfig.label}
                           </span>
                           <span className="rounded-full border border-border bg-background/70 px-3 py-1 font-medium">
                             Mode&nbsp;: {gameMode === 'ai' ? 'vs IA' : 'Local'}
                           </span>
+                        </div>
+                        {(!isVariantAutomated || isVariantRuleMissing) && (
+                          <Alert className="border-amber-300/60 bg-amber-500/10 text-amber-900 dark:text-amber-100">
+                            <AlertTriangle className="h-5 w-5" />
+                            <AlertTitle className="text-sm font-semibold">Variante descriptive</AlertTitle>
+                            <AlertDescription className="text-xs leading-relaxed">
+                              Cette variante ne possède pas encore de règles automatisées. La partie démarrera avec les règles
+                              classiques : suivez les instructions du texte généré pour pimenter la partie.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        <div className="rounded-lg border border-border/60 bg-background/80 p-3 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                          {selectedVariantData.rules}
                         </div>
                         <div className="flex justify-end">
                           <Button
@@ -639,8 +818,9 @@ export default function Lobby() {
                                 },
                               });
                             }}
+                            disabled={!selectedVariantData}
                           >
-                            Lancer cette variante
+                            {isVariantAutomated ? 'Lancer cette variante' : 'Lancer (règles classiques)'}
                           </Button>
                         </div>
                       </div>

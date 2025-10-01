@@ -53,6 +53,82 @@ export type Database = {
         }
         Relationships: []
       }
+      chess_variant_prompts: {
+        Row: {
+          created_at: string
+          difficulty: string | null
+          id: string
+          prompt: string
+          rules: string
+          variant_id: string
+        }
+        Insert: {
+          created_at?: string
+          difficulty?: string | null
+          id?: string
+          prompt: string
+          rules: string
+          variant_id: string
+        }
+        Update: {
+          created_at?: string
+          difficulty?: string | null
+          id?: string
+          prompt?: string
+          rules?: string
+          variant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'chess_variant_prompts_variant_id_fkey'
+            columns: ['variant_id']
+            referencedRelation: 'chess_variants'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      chess_variants: {
+        Row: {
+          created_at: string
+          difficulty: string | null
+          display_order: number | null
+          id: string
+          metadata: Json
+          prompt: string | null
+          rule_id: string | null
+          rules: string
+          source: Database['public']['Enums']['variant_source']
+          summary: string
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          difficulty?: string | null
+          display_order?: number | null
+          id?: string
+          metadata?: Json
+          prompt?: string | null
+          rule_id?: string | null
+          rules: string
+          source?: Database['public']['Enums']['variant_source']
+          summary: string
+          title: string
+        }
+        Update: {
+          created_at?: string
+          difficulty?: string | null
+          display_order?: number | null
+          id?: string
+          metadata?: Json
+          prompt?: string | null
+          rule_id?: string | null
+          rules?: string
+          source?: Database['public']['Enums']['variant_source']
+          summary?: string
+          title?: string
+        }
+        Relationships: []
+      }
       bot_profiles: {
         Row: {
           book: Json
@@ -368,6 +444,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
+      variant_source: 'builtin' | 'generated'
       [_ in never]: never
     }
     CompositeTypes: {
