@@ -63,6 +63,19 @@ function deepCloneState(state: ExtendedGameState): ExtendedGameState {
   return JSON.parse(JSON.stringify(state));
 }
 
+function resolveFenChar(piece: Piece): string {
+  const mapped = pieceTypeToFen[piece.type as PieceType];
+  if (mapped) {
+    return mapped;
+  }
+
+  if (typeof piece.type === "string" && piece.type.length > 0) {
+    return piece.type.charAt(0).toLowerCase();
+  }
+
+  throw new Error(`Unsupported piece type: ${String(piece.type)}`);
+}
+
 export function algebraicToPos(square: string): Pos {
   const file = square.charCodeAt(0) - 97;
   const rank = parseInt(square[1], 10);
@@ -149,7 +162,7 @@ function boardToFen(board: Board): string {
         rankStr += empty.toString();
         empty = 0;
       }
-      const fenChar = pieceTypeToFen[piece.type];
+      const fenChar = resolveFenChar(piece);
       rankStr += piece.color === "white" ? fenChar.toUpperCase() : fenChar;
     }
     if (empty > 0) {
