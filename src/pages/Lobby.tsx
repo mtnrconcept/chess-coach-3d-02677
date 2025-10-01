@@ -10,6 +10,8 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { lobbyRooms as variantLobbyRooms } from "@/variant-chess-lobby";
 import { toast } from "sonner";
 import { Clock, Users, Sword, Hourglass, PlusCircle, XCircle } from "lucide-react";
 
@@ -283,93 +285,122 @@ export default function Lobby() {
             </Button>
           </Card>
 
-          <Card className="p-6 gradient-card border-chess">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <Users className="w-6 h-6 text-chess-gold" />
-                <h2 className="text-2xl font-semibold text-chess-gold">Salons disponibles</h2>
+          <div className="space-y-8">
+            <Card className="p-6 gradient-card border-chess">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <Users className="w-6 h-6 text-chess-gold" />
+                  <h2 className="text-2xl font-semibold text-chess-gold">Salons disponibles</h2>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => lobbyQuery.refetch()} className="hover-lift">
+                  Rafraîchir
+                </Button>
               </div>
-              <Button variant="outline" size="sm" onClick={() => lobbyQuery.refetch()} className="hover-lift">
-                Rafraîchir
-              </Button>
-            </div>
 
-            {lobbyQuery.isLoading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((skeleton) => (
-                  <Skeleton key={skeleton} className="h-24 w-full bg-background/50" />
-                ))}
-              </div>
-            ) : lobbyQuery.isError ? (
-              <div className="p-6 text-center text-muted-foreground">
-                Impossible de charger les salons. Veuillez réessayer plus tard.
-              </div>
-            ) : lobbyQuery.data.length === 0 ? (
-              <div className="p-10 text-center text-muted-foreground bg-background/40 rounded-lg border border-border">
-                Aucun salon disponible pour le moment. Créez le vôtre pour inviter d'autres joueurs !
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {lobbyQuery.data.map((lobby) => (
-                  <div
-                    key={lobby.id}
-                    className="p-5 rounded-xl border border-border bg-background/60 hover:bg-background/80 transition-colors"
-                  >
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Clock className="w-4 h-4" />
-                          {new Intl.DateTimeFormat("fr-FR", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }).format(new Date(lobby.created_at))}
-                        </div>
-                        <h3 className="text-xl font-semibold text-chess-gold">
-                          {lobby.host_name} cherche un adversaire
-                        </h3>
-                        <div className="flex flex-wrap items-center gap-2 text-sm">
-                          <Badge variant="outline" className="flex items-center gap-1">
-                            <Hourglass className="w-3 h-3" />
-                            {lobby.time_control}
-                          </Badge>
-                          {lobby.elo_level && (
-                            <Badge variant="secondary">{lobby.elo_level}</Badge>
-                          )}
-                          {lobby.coaching_mode && (
-                            <Badge variant="default" className="bg-accent text-background">
-                              Coaching IA
+              {lobbyQuery.isLoading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((skeleton) => (
+                    <Skeleton key={skeleton} className="h-24 w-full bg-background/50" />
+                  ))}
+                </div>
+              ) : lobbyQuery.isError ? (
+                <div className="p-6 text-center text-muted-foreground">
+                  Impossible de charger les salons. Veuillez réessayer plus tard.
+                </div>
+              ) : lobbyQuery.data.length === 0 ? (
+                <div className="p-10 text-center text-muted-foreground bg-background/40 rounded-lg border border-border">
+                  Aucun salon disponible pour le moment. Créez le vôtre pour inviter d'autres joueurs !
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {lobbyQuery.data.map((lobby) => (
+                    <div
+                      key={lobby.id}
+                      className="p-5 rounded-xl border border-border bg-background/60 hover:bg-background/80 transition-colors"
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Clock className="w-4 h-4" />
+                            {new Intl.DateTimeFormat("fr-FR", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }).format(new Date(lobby.created_at))}
+                          </div>
+                          <h3 className="text-xl font-semibold text-chess-gold">
+                            {lobby.host_name} cherche un adversaire
+                          </h3>
+                          <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <Badge variant="outline" className="flex items-center gap-1">
+                              <Hourglass className="w-3 h-3" />
+                              {lobby.time_control}
                             </Badge>
-                          )}
-                          {lobby.status === "matched" && lobby.opponent_name && (
-                            <Badge variant="default" className="bg-primary text-background">
-                              {lobby.opponent_name} a rejoint
-                            </Badge>
-                          )}
+                            {lobby.elo_level && <Badge variant="secondary">{lobby.elo_level}</Badge>}
+                            {lobby.coaching_mode && (
+                              <Badge variant="default" className="bg-accent text-background">
+                                Coaching IA
+                              </Badge>
+                            )}
+                            {lobby.status === "matched" && lobby.opponent_name && (
+                              <Badge variant="default" className="bg-primary text-background">
+                                {lobby.opponent_name} a rejoint
+                              </Badge>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        {lobby.status === "open" && (
-                          <Button className="hover-lift" onClick={() => joinLobby(lobby)}>
-                            <Sword className="w-4 h-4 mr-2" />
-                            Rejoindre
+                        <div className="flex flex-wrap gap-2">
+                          {lobby.status === "open" && (
+                            <Button className="hover-lift" onClick={() => joinLobby(lobby)}>
+                              <Sword className="w-4 h-4 mr-2" />
+                              Rejoindre
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            className="hover-lift"
+                            onClick={() => closeLobby(lobby)}
+                          >
+                            <XCircle className="w-4 h-4 mr-2" />
+                            Fermer
                           </Button>
-                        )}
-                        <Button
-                          variant="outline"
-                          className="hover-lift"
-                          onClick={() => closeLobby(lobby)}
-                        >
-                          <XCircle className="w-4 h-4 mr-2" />
-                          Fermer
-                        </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            <Card className="p-6 gradient-card border-chess space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Sword className="w-6 h-6 text-chess-gold" />
+                  <h2 className="text-2xl font-semibold text-chess-gold">Variantes du lobby</h2>
+                </div>
+                <Badge variant="outline" className="text-xs uppercase tracking-widest text-chess-gold">
+                  {variantLobbyRooms.length} salons
+                </Badge>
               </div>
-            )}
-          </Card>
+              <p className="text-sm text-muted-foreground">
+                Découvrez les 30 variantes disponibles : chaque salon applique une règle spéciale qui transforme votre
+                façon de jouer. Sélectionnez simplement une salle pour lancer une partie avec cette variante.
+              </p>
+              <ScrollArea className="max-h-[420px] pr-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  {variantLobbyRooms.map((room) => (
+                    <div
+                      key={room.id}
+                      className="p-4 rounded-xl border border-border bg-background/60 hover:bg-background/80 transition-colors"
+                    >
+                      <h3 className="text-lg font-semibold text-chess-gold">{room.title}</h3>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{room.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </Card>
+          </div>
         </div>
       </div>
     </div>
