@@ -18,9 +18,9 @@ serve(async (req) => {
   }
 
   try {
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openAIApiKey) {
-      throw new Error('OPENAI_API_KEY is not set');
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
+    if (!geminiApiKey) {
+      throw new Error('GEMINI_API_KEY is not set');
     }
 
     const { description, difficulty = 'intermediate' }: CustomRulesRequest = await req.json();
@@ -38,36 +38,48 @@ INSTRUCTIONS:
 - Donne des exemples concrets si nécessaire
 - Assure-toi que les règles sont jouables et logiques`;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
+        systemInstruction: {
+          role: 'system',
+          parts: [{ text: systemPrompt }]
+        },
+        contents: [
           {
             role: 'user',
-            content: `Crée des règles d'échecs personnalisées basées sur cette description: ${description}`
+            parts: [
+              {
+                text: `Crée des règles d'échecs personnalisées basées sur cette description: ${description}`
+              }
+            ]
           }
         ],
-        max_tokens: 800,
+        generationConfig: {
+          maxOutputTokens: 800
+        }
       }),
     });
 
     if (!response.ok) {
       const errorData = await response.text();
-      console.error('OpenAI API error:', errorData);
-      throw new Error(`OpenAI API error: ${response.status}`);
+      console.error('Gemini API error:', errorData);
+      throw new Error(`Gemini API error: ${response.status}`);
     }
 
     const data = await response.json();
-    const customRules = data.choices[0].message.content.trim();
+    const customRules = data.candidates?.[0]?.content?.parts
+      ?.map((part: { text?: string }) => part.text ?? '')
+      .join('\n')
+      .trim();
+
+    if (!customRules) {
+      console.error('Gemini API response did not contain any content:', data);
+      throw new Error('Aucune règle générée par le modèle Gemini');
+    }
 
     console.log('Generated custom rules:', customRules);
 
