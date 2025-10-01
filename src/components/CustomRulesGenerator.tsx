@@ -30,6 +30,7 @@ export function CustomRulesGenerator() {
   const [difficulty, setDifficulty] = useState<DifficultyLevel>("intermediate");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedRules, setGeneratedRules] = useState("");
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
 
   const handleGenerate = async () => {
     if (!description.trim()) {
@@ -38,18 +39,37 @@ export function CustomRulesGenerator() {
     }
 
     setIsGenerating(true);
+    setWarningMessage(null);
     try {
       const { data, error } = await supabase.functions.invoke('generate-custom-rules', {
         body: { description, difficulty }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase function error:', error);
+        const message =
+          typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
+            ? error.message
+            : "Erreur lors de la génération des règles";
+        toast.error(message);
+        setGeneratedRules("");
+        return;
+      }
 
-      setGeneratedRules(data.rules);
-      toast.success("Règles générées avec succès !");
+      const rules = typeof data?.rules === 'string' ? data.rules : "";
+      setGeneratedRules(rules);
+
+      if (data?.warning && typeof data.warning === 'string') {
+        setWarningMessage(data.warning);
+        toast.info(data.warning);
+      } else {
+        toast.success("Règles générées avec succès !");
+      }
     } catch (error) {
       console.error('Error generating custom rules:', error);
-      toast.error("Erreur lors de la génération des règles");
+      const message = error instanceof Error ? error.message : "Erreur lors de la génération des règles";
+      toast.error(message);
+      setGeneratedRules("");
     } finally {
       setIsGenerating(false);
     }
@@ -124,6 +144,11 @@ export function CustomRulesGenerator() {
                 Règles générées
               </Badge>
             </div>
+            {warningMessage && (
+              <p className="mb-3 text-sm text-muted-foreground italic">
+                {warningMessage}
+              </p>
+            )}
             <div className="text-sm leading-relaxed whitespace-pre-wrap">
               {generatedRules}
             </div>
