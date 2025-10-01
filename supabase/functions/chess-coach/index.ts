@@ -4,6 +4,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST,OPTIONS',
+  'Cache-Control': 'no-store',
 };
 
 interface ChessCoachRequest {
@@ -19,13 +21,32 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const sendSuccess = (body: Record<string, unknown>) =>
+  const jsonResponse = (status: number, body: Record<string, unknown>) =>
     new Response(JSON.stringify(body), {
+      status,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   try {
-    const { position, lastMove, gamePhase = 'opening', moveCount = 1 }: ChessCoachRequest = await req.json();
+    const payload: Partial<ChessCoachRequest> = await req.json().catch(() => ({}));
+
+    const position = typeof payload.position === 'string' ? payload.position : '';
+    const lastMove =
+      payload.lastMove &&
+      typeof payload.lastMove.from === 'string' &&
+      typeof payload.lastMove.to === 'string' &&
+      typeof payload.lastMove.san === 'string'
+        ? payload.lastMove
+        : undefined;
+    const gamePhase: ChessCoachRequest['gamePhase'] = payload.gamePhase ?? 'opening';
+    const moveCount = typeof payload.moveCount === 'number' ? payload.moveCount : 1;
+
+    if (!position) {
+      return jsonResponse(400, {
+        error: 'missing_position',
+        message: 'A valid FEN position must be provided.',
+      });
+    }
 
     const baseResponse = {
       coaching: 'Continuez à jouer, chaque coup est une leçon !',
@@ -36,7 +57,7 @@ serve(async (req) => {
     const groqApiKey = Deno.env.get('GROQ_API_KEY');
     if (!groqApiKey) {
       console.warn('GROQ_API_KEY is not set – returning fallback coaching message');
-      return sendSuccess({ ...baseResponse, warning: 'missing_api_key' });
+      return jsonResponse(200, { ...baseResponse, warning: 'missing_api_key' });
     }
 
     // Construct coaching prompt based on game context
@@ -106,7 +127,7 @@ Analyse brièvement la position et donne un conseil constructif.`;
     if (!response.ok) {
       const errorData = await response.text();
       console.error('Groq API error:', errorData);
-      return sendSuccess({ ...baseResponse, warning: `groq_error_${response.status}` });
+      return jsonResponse(200, { ...baseResponse, warning: `groq_error_${response.status}` });
     }
 
     const data = await response.json();
@@ -114,12 +135,12 @@ Analyse brièvement la position et donne un conseil constructif.`;
 
     if (!coaching) {
       console.warn('Groq API returned no coaching content – using fallback message');
-      return sendSuccess({ ...baseResponse, warning: 'empty_response' });
+      return jsonResponse(200, { ...baseResponse, warning: 'empty_response' });
     }
 
     console.log('Generated coaching:', coaching);
 
-    return sendSuccess({
+    return jsonResponse(200, {
       coaching,
       gamePhase,
       moveCount,
@@ -127,7 +148,7 @@ Analyse brièvement la position et donne un conseil constructif.`;
   } catch (error) {
     console.error('Error in chess-coach function:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return sendSuccess({
+    return jsonResponse(500, {
       coaching: 'Continuez à jouer, chaque coup est une leçon !',
       error: errorMessage,
     });
