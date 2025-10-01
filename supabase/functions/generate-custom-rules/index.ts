@@ -23,7 +23,31 @@ serve(async (req) => {
       throw new Error('GEMINI_API_KEY is not set');
     }
 
-    const { description, difficulty = 'intermediate' }: CustomRulesRequest = await req.json();
+    let body: Partial<CustomRulesRequest> = {};
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      console.error('Invalid JSON payload received:', parseError);
+      return new Response(JSON.stringify({
+        error: "Requête invalide: le corps doit être un JSON valide.",
+        rules: 'Impossible de générer les règles pour le moment. Veuillez réessayer.'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { description, difficulty = 'intermediate' } = body;
+
+    if (!description || typeof description !== 'string' || description.trim().length === 0) {
+      return new Response(JSON.stringify({
+        error: "Requête invalide: veuillez fournir une description des règles à générer.",
+        rules: 'Impossible de générer les règles pour le moment. Veuillez réessayer.'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const systemPrompt = `Tu es un expert en échecs et en conception de règles de jeu. Tu crées des règles d'échecs personnalisées qui sont:
 - Équilibrées et justes pour les deux joueurs
@@ -67,7 +91,14 @@ INSTRUCTIONS:
     if (!response.ok) {
       const errorData = await response.text();
       console.error('Gemini API error:', errorData);
-      throw new Error(`Gemini API error: ${response.status}`);
+      return new Response(JSON.stringify({
+        error: `Erreur lors de la génération des règles (${response.status}).`,
+        details: errorData,
+        rules: 'Impossible de générer les règles pour le moment. Veuillez réessayer.'
+      }), {
+        status: response.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const data = await response.json();
