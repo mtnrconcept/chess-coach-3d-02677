@@ -1,5 +1,5 @@
 import { Chess } from "chess.js";
-import { isKingInCheck } from "./chessAnalysis";
+import { isKingInCheck } from "@/lib/chessAnalysis";
 import type {
   Board,
   Color,

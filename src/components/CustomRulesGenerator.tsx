@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Wand2, Loader2, Sparkles } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/services/supabase/client";
 import { toast } from "sonner";
 import {
   Select,
@@ -14,9 +14,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+type DifficultyLevel = "beginner" | "intermediate" | "advanced";
+
+const difficultyLevels: Array<{ value: DifficultyLevel; label: string }> = [
+  { value: "beginner", label: "Débutant" },
+  { value: "intermediate", label: "Intermédiaire" },
+  { value: "advanced", label: "Avancé" },
+];
+
+const isDifficultyLevel = (value: string): value is DifficultyLevel =>
+  difficultyLevels.some((option) => option.value === value);
+
 export function CustomRulesGenerator() {
   const [description, setDescription] = useState("");
-  const [difficulty, setDifficulty] = useState<"beginner" | "intermediate" | "advanced">("intermediate");
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>("intermediate");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedRules, setGeneratedRules] = useState("");
 
@@ -67,14 +78,23 @@ export function CustomRulesGenerator() {
 
         <div>
           <label className="text-sm font-medium mb-2 block">Niveau de difficulté</label>
-          <Select value={difficulty} onValueChange={(value: any) => setDifficulty(value)}>
+          <Select
+            value={difficulty}
+            onValueChange={(value) => {
+              if (isDifficultyLevel(value)) {
+                setDifficulty(value);
+              }
+            }}
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="beginner">Débutant</SelectItem>
-              <SelectItem value="intermediate">Intermédiaire</SelectItem>
-              <SelectItem value="advanced">Avancé</SelectItem>
+              {difficultyLevels.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
