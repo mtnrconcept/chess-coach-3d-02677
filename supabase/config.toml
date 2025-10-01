@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.generate-custom-rules]
 verify_jwt = false
+
+[functions.live-eval]
+verify_jwt = false

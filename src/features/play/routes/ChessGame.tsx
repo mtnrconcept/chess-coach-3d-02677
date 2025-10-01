@@ -35,6 +35,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { LiveEvalBadge } from "@/features/analysis/LiveEvalBadge";
 import {
   Dialog,
   DialogContent,
@@ -106,6 +107,7 @@ export default function ChessGame() {
   const [isCoachAnalyzing, setIsCoachAnalyzing] = useState(false);
   const [isCoachEnabled, setIsCoachEnabled] = useState<boolean>(!!gameState.coachingMode);
   const [coachLanguage, setCoachLanguage] = useState<CoachLanguage>("fr");
+  const [isLiveEvalEnabled, setIsLiveEvalEnabled] = useState<boolean>(gameState.liveEval === false ? false : true);
 
   // Game mode: 'ai' or 'local' (player vs player)
   const [gameMode] = useState<'ai' | 'local'>(gameState.gameMode || 'ai');
@@ -142,6 +144,34 @@ export default function ChessGame() {
     b: 'bishop',
     n: 'knight',
   };
+
+  const liveEvalServerUrl = useMemo(() => {
+    if (typeof gameState.liveEvalUrl === "string" && gameState.liveEvalUrl.length > 0) {
+      return gameState.liveEvalUrl as string;
+    }
+    const envUrl = import.meta.env.VITE_LIVE_EVAL_URL;
+    if (typeof envUrl === "string" && envUrl.length > 0) {
+      return envUrl;
+    }
+    return "/functions/v1/live-eval";
+  }, [gameState.liveEvalUrl]);
+
+  const liveEvalPly = useMemo(() => {
+    const parts = gamePosition.trim().split(/\s+/);
+    if (parts.length < 6) return 0;
+    const fullmove = Number.parseInt(parts[5] ?? "0", 10);
+    if (!Number.isFinite(fullmove) || fullmove <= 0) {
+      return 0;
+    }
+    const sideToMove = parts[1] === "b" ? 1 : 0;
+    return (fullmove - 1) * 2 + sideToMove;
+  }, [gamePosition]);
+
+  const liveEvalToggleLabel = isLiveEvalEnabled
+    ? "Désactiver l'évaluation cloud"
+    : "Activer l'évaluation cloud";
+
+  const liveEvalActive = isLiveEvalEnabled && gameStatus === "playing";
 
   const recordStandardMove = (move: ChessJsMove, movingColor: 'white' | 'black') => {
     const updatedHistory = [...moveHistoryRef.current, move];
@@ -594,9 +624,9 @@ export default function ChessGame() {
               {gameState.timeControl?.time} • {gameMode === 'local' ? '2 joueurs' : gameState.coachingMode ? "Mode Coaching" : gameState.eloLevel?.name}
               {activeVariant && ` • ${activeVariant.title}`}
             </h1>
-            <div className="flex items-center gap-2 justify-center mt-1">
+            <div className="flex flex-wrap items-center gap-2 justify-center mt-1">
               <Badge variant={gameStatus === 'playing' ? "default" : "secondary"}>
-                {gameStatus === 'playing' ? 'En cours' : 
+                {gameStatus === 'playing' ? 'En cours' :
                  gameStatus === 'checkmate' ? 'Échec et mat' :
                  gameStatus === 'draw' ? 'Nulle' : 'Abandon'}
               </Badge>
@@ -606,6 +636,24 @@ export default function ChessGame() {
                   IA réfléchit...
                 </Badge>
               )}
+              <LiveEvalBadge
+                fen={gamePosition}
+                ply={liveEvalPly}
+                enabled={liveEvalActive}
+                serverUrl={liveEvalServerUrl}
+              />
+              <div className="flex items-center gap-1 text-muted-foreground">
+                <Switch
+                  id="live-eval-toggle"
+                  checked={isLiveEvalEnabled}
+                  onCheckedChange={setIsLiveEvalEnabled}
+                  aria-label={liveEvalToggleLabel}
+                  disabled={gameStatus !== 'playing'}
+                />
+                <Label htmlFor="live-eval-toggle" className="text-xs font-medium">
+                  Éval cloud
+                </Label>
+              </div>
             </div>
           </div>
 
