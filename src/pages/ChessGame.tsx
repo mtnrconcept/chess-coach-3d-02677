@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Environment } from "@react-three/drei";
@@ -11,8 +11,7 @@ import type { Move } from "chess.js";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, RotateCcw, Flag, MessageCircle } from "lucide-react";
+import { ArrowLeft, RotateCcw, Flag, MessageCircle, Sparkles } from "lucide-react";
 import { ChessBoard3D } from "@/components/ChessBoard3D";
 import { GameTimer } from "@/components/GameTimer";
 import { MoveHistory } from "@/components/MoveHistory";
@@ -25,6 +24,17 @@ import {
   withEngineAdvice,
   type CoachingInsights,
 } from "@/lib/chessAnalysis";
+import {
+  coachLanguageOptions,
+  getCoachDisabledMessage,
+  getCoachLanguageConfig,
+  translateCoachingInsights,
+  translateCoachingText,
+  type CoachLanguage,
+} from "@/lib/coachLanguage";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 function AnimatedCamera() {
   const cameraRef = useRef<any>(null);
@@ -76,7 +86,9 @@ export default function ChessGame() {
   const [coachingComment, setCoachingComment] = useState<string>("");
   const [analysisDetails, setAnalysisDetails] = useState<CoachingInsights | null>(null);
   const [isCoachAnalyzing, setIsCoachAnalyzing] = useState(false);
-  
+  const [isCoachEnabled, setIsCoachEnabled] = useState<boolean>(!!gameState.coachingMode);
+  const [coachLanguage, setCoachLanguage] = useState<CoachLanguage>("fr");
+
   // Game mode: 'ai' or 'local' (player vs player)
   const [gameMode] = useState<'ai' | 'local'>(gameState.gameMode || 'ai');
   
@@ -110,7 +122,7 @@ export default function ChessGame() {
   }, [moveHistory]);
 
   const provideCoachingFeedback = async (move: Move, updatedHistory: Move[], isOpponentMove = false) => {
-    if (!gameState.coachingMode) return;
+    if (!isCoachEnabled) return;
 
     const localInsights = isOpponentMove
       ? analyzeAIMove({ chess, move, history: updatedHistory })
@@ -168,7 +180,7 @@ export default function ChessGame() {
     const variantText = activeVariant ? ` • ${activeVariant.title}` : '';
     toast.success(`Partie commencée : ${gameState.timeControl.time} • ${gameModeText}${variantText}`);
     
-    if (gameState.coachingMode) {
+    if (isCoachEnabled) {
       setCoachingComment("Excellente ouverture ! Commencez par contrôler le centre avec e4 ou d4.");
     }
     
@@ -217,7 +229,7 @@ export default function ChessGame() {
           }
 
           // Coaching mode comment
-          if (gameState.coachingMode) {
+          if (isCoachEnabled) {
             void provideCoachingFeedback(move, updatedHistory);
           }
 
@@ -303,7 +315,7 @@ export default function ChessGame() {
           toast.info("Partie nulle !");
         }
 
-        if (gameState.coachingMode) {
+        if (isCoachEnabled) {
           void provideCoachingFeedback(move, updatedHistory, true);
         }
       }
@@ -321,6 +333,69 @@ export default function ChessGame() {
   const handleNewGame = () => {
     navigate("/", { replace: true });
   };
+
+  const handleSpecialMove = () => {
+    if (!activeVariant) {
+      toast.info("Aucune variante spéciale sélectionnée.");
+      return;
+    }
+
+    toast.success(`Attaque spéciale : ${activeVariant.title}`, {
+      description: activeVariant.description,
+    });
+  };
+
+  useEffect(() => {
+    if (isCoachEnabled) {
+      if (moveHistoryRef.current.length > 0) {
+        const latestMove = moveHistoryRef.current[moveHistoryRef.current.length - 1];
+        const isOpponentMove = gameMode === 'ai' ? latestMove.color === 'b' : false;
+        void provideCoachingFeedback(latestMove, moveHistoryRef.current, isOpponentMove);
+      } else if (!coachingComment) {
+        setCoachingComment("Excellente ouverture ! Commencez par contrôler le centre avec e4 ou d4.");
+      }
+    } else {
+      setIsCoachAnalyzing(false);
+    }
+  }, [isCoachEnabled]);
+
+  const coachConfig = useMemo(() => getCoachLanguageConfig(coachLanguage), [coachLanguage]);
+  const localizedAnalysis = useMemo(
+    () => (analysisDetails ? translateCoachingInsights(analysisDetails, coachLanguage) : null),
+    [analysisDetails, coachLanguage],
+  );
+  const localizedComment = useMemo(
+    () => translateCoachingText(coachingComment, coachLanguage),
+    [coachingComment, coachLanguage],
+  );
+  const displayComment = isCoachEnabled ? localizedComment : getCoachDisabledMessage(coachLanguage);
+  const displayAnalysis = isCoachEnabled ? localizedAnalysis : null;
+  const coachStatusText = (isCoachEnabled
+    ? {
+        fr: "Le coach commente chaque coup.",
+        en: "The coach comments on every move.",
+        es: "El coach comenta cada jugada.",
+      }
+    : {
+        fr: "Activez le coach pour recevoir des conseils.",
+        en: "Enable the coach to receive advice.",
+        es: "Activa el coach para recibir consejos.",
+      })[coachLanguage];
+  const coachToggleLabel = {
+    fr: "Activer ou désactiver le coach",
+    en: "Toggle the coach on or off",
+    es: "Activar o desactivar el coach",
+  }[coachLanguage];
+  const coachLanguageLabel = {
+    fr: "Langue du coach",
+    en: "Coach language",
+    es: "Idioma del coach",
+  }[coachLanguage];
+  const languagePlaceholder = {
+    fr: "Choisir une langue",
+    en: "Choose a language",
+    es: "Elige un idioma",
+  }[coachLanguage];
 
   return (
     <div className="min-h-screen bg-background">
@@ -353,6 +428,12 @@ export default function ChessGame() {
           </div>
 
           <div className="flex gap-2">
+            {activeVariant && (
+              <Button variant="outline" onClick={handleSpecialMove} className="hover-lift">
+                <Sparkles className="w-4 h-4 mr-2" />
+                Attaque spéciale
+              </Button>
+            )}
             <Button variant="outline" onClick={handleNewGame} className="hover-lift">
               <RotateCcw className="w-4 h-4 mr-2" />
               Nouvelle partie
@@ -376,14 +457,45 @@ export default function ChessGame() {
               gameStatus={gameStatus}
             />
             
-            {gameState.coachingMode && (
-              <CoachingPanel
-                comment={coachingComment}
-                analysis={analysisDetails}
-                isAnalyzing={isCoachAnalyzing}
-              />
-            )}
-            
+            <Card className="p-4 gradient-card border-chess/60">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold">{coachConfig.coachTitle}</p>
+                  <p className="text-xs text-muted-foreground">{coachStatusText}</p>
+                </div>
+                <Switch
+                  checked={isCoachEnabled}
+                  onCheckedChange={setIsCoachEnabled}
+                  aria-label={coachToggleLabel}
+                />
+              </div>
+              <div className="mt-4 space-y-2">
+                <Label htmlFor="coach-language" className="text-xs uppercase tracking-wide text-muted-foreground">
+                  {coachLanguageLabel}
+                </Label>
+                <Select value={coachLanguage} onValueChange={(value) => setCoachLanguage(value as CoachLanguage)}>
+                  <SelectTrigger id="coach-language">
+                    <SelectValue placeholder={languagePlaceholder} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {coachLanguageOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </Card>
+
+            <CoachingPanel
+              comment={displayComment}
+              analysis={displayAnalysis}
+              isAnalyzing={isCoachAnalyzing && isCoachEnabled}
+              language={coachLanguage}
+              isEnabled={isCoachEnabled}
+            />
+
             <MoveHistory moves={moveHistory} />
           </div>
 
