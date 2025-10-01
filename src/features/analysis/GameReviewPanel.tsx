@@ -6,6 +6,8 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AnalysisTag, MoveAnalysis } from '@/services/analysisClient';
+import type { CoachTone } from '@/lib/analysis/coachMessages';
+import type { PatternId } from '@/lib/analysis/patterns';
 import { useGameReview } from './hooks/useGameReview';
 
 type BadgeVariant = BadgeProps['variant'];
@@ -17,6 +19,22 @@ const TAG_METADATA: Record<AnalysisTag, { icon: string; label: string; badgeVari
   blunder: { icon: '🔴', label: 'Gaffe', badgeVariant: 'destructive' },
   brilliant: { icon: '💎', label: 'Brillant', badgeVariant: 'default' },
   great: { icon: '⭐', label: 'Great move', badgeVariant: 'default' },
+};
+
+const COACH_TONE_COLORS: Record<CoachTone, string> = {
+  positive: 'text-emerald-600 dark:text-emerald-400',
+  info: 'text-foreground',
+  warning: 'text-amber-600 dark:text-amber-400',
+  critical: 'text-destructive',
+};
+
+const PATTERN_LABELS: Record<PatternId, { icon: string; label: string }> = {
+  'hanging-piece': { icon: '⚠️', label: 'Pièce non protégée' },
+  'material-drop': { icon: '💸', label: 'Matériel perdu' },
+  'fork-threat': { icon: '🔱', label: 'Menace de fourchette' },
+  pin: { icon: '📍', label: 'Clouage' },
+  'missed-mate': { icon: '♛', label: 'Mat forcé manqué' },
+  'mate-threat': { icon: '☠️', label: 'Mat subi en vue' },
 };
 
 export interface GameReviewPanelProps {
@@ -131,11 +149,37 @@ export function GameReviewPanel({
                           </p>
                         </div>
                       </div>
-                      {onShowBestMove && (
-                        <Button size="sm" variant="ghost" onClick={() => onShowBestMove(move)}>
-                          Show best move
-                        </Button>
-                      )}
+                    </div>
+                    <div className="mt-3 rounded-md border border-dashed border-border/70 bg-muted/40 p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Pourquoi ?
+                          </p>
+                          <p className={`text-sm leading-snug ${COACH_TONE_COLORS[move.coach.tone]}`}>
+                            {move.coach.fr}
+                          </p>
+                          {move.patterns.length > 0 && (
+                            <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                              {move.patterns.map((pattern, index) => {
+                                const label = PATTERN_LABELS[pattern.id];
+                                if (!label) return null;
+                                return (
+                                  <Badge key={`${pattern.id}-${index}`} variant="outline" className="flex items-center gap-1">
+                                    <span>{label.icon}</span>
+                                    <span>{label.label}</span>
+                                  </Badge>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        {onShowBestMove && (
+                          <Button size="sm" variant="outline" onClick={() => onShowBestMove(move)}>
+                            Voir la ligne
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     {move.principalVariation.length > 0 && (
                       <p className="mt-2 text-xs text-muted-foreground">

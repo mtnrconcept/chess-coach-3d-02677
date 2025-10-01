@@ -5,6 +5,8 @@ import type {
   EngineHandle,
 } from '@/engine/stockfishClient';
 import { initEngine } from '@/engine/stockfishClient';
+import { detectPatterns, type DetectedPattern } from '@/lib/analysis/patterns';
+import { buildCoachMessage, type CoachMessage } from '@/lib/analysis/coachMessages';
 
 export interface AnalyseGameRequest {
   pgn: string;
@@ -25,6 +27,8 @@ export interface MoveAnalysis {
   principalVariation: string[];
   delta: number;
   tag: AnalysisTag;
+  patterns: DetectedPattern[];
+  coach: CoachMessage;
 }
 
 export type AnalysisTag =
@@ -219,7 +223,28 @@ export class AnalysisClient {
         bestMove = findMove(buildBoard(beforeFen), bestMove)?.san ?? bestMove;
       }
       const delta = evaluationAfter - evaluationBefore;
+      const followupBestLine =
+        followupAnalysis.lines.find((line) => line.multipv === 1) ?? followupAnalysis.lines[0];
+      const mateInBefore =
+        bestLine && bestLine.evaluation.type === 'mate' && bestLine.evaluation.value > 0
+          ? bestLine.evaluation.value
+          : null;
+      const mateInAgainst =
+        followupBestLine && followupBestLine.evaluation.type === 'mate' && followupBestLine.evaluation.value > 0
+          ? followupBestLine.evaluation.value
+          : null;
+      const patterns = detectPatterns({
+        color: move.color,
+        fenBefore: beforeFen,
+        fenAfter: afterFen,
+        evaluationBefore,
+        evaluationAfter,
+        delta,
+        mateInBefore,
+        mateInAgainst,
+      });
       const tag = classifyDelta(delta / 100, resolveThresholds(request.accuracyForElo));
+      const coach = buildCoachMessage({ tag, delta, san: move.san, bestMove, patterns });
 
       analyses.push({
         ply,
@@ -232,6 +257,8 @@ export class AnalysisClient {
         principalVariation,
         delta,
         tag,
+        patterns,
+        coach,
       });
       ply += 1;
     }
@@ -268,6 +295,7 @@ export class AnalysisClient {
       pv: string[];
       delta_cp: number;
       tag: AnalysisTag;
+      patterns?: DetectedPattern[];
     }>;
 
     return {
@@ -282,6 +310,14 @@ export class AnalysisClient {
         principalVariation: move.pv,
         delta: move.delta_cp,
         tag: move.tag,
+        patterns: move.patterns ?? [],
+        coach: buildCoachMessage({
+          tag: move.tag,
+          delta: move.delta_cp,
+          san: move.san,
+          bestMove: move.best_move,
+          patterns: move.patterns ?? [],
+        }),
       })),
       accuracy: payload.accuracy ?? 0,
       summary: payload.summary ?? {},

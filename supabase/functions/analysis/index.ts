@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { Chess } from 'npm:chess.js';
 import { TextLineStream } from 'https://deno.land/std@0.224.0/streams/text_line_stream.ts';
 import { tagMove, type AnalysisTag, type MultipvLine as TaggerMultipvLine } from './tagger.ts';
+import { detectPatterns, type DetectedPattern } from './patterns.ts';
 
 interface AnalysisRequest {
   pgn: string;
@@ -40,6 +41,7 @@ interface MovePayload {
   pv: string[];
   delta_cp: number;
   tag: AnalysisTag;
+  patterns: DetectedPattern[];
 }
 
 interface AnalysisResponse {
@@ -331,6 +333,24 @@ async function runAnalysis(request: AnalysisRequest): Promise<AnalysisResponse> 
     const pvSan = bestLine ? pvToSanSequence(beforeFen, bestLine.pv) : [];
 
     const delta = evaluationAfter - evaluationBest;
+    const mateInBefore =
+      bestLine && bestLine.evaluation.type === 'mate' && bestLine.evaluation.value > 0
+        ? bestLine.evaluation.value
+        : null;
+    const mateInAgainst =
+      afterBestLine && afterBestLine.evaluation.type === 'mate' && afterBestLine.evaluation.value > 0
+        ? afterBestLine.evaluation.value
+        : null;
+    const patterns = detectPatterns({
+      color,
+      fenBefore: beforeFen,
+      fenAfter: afterFen,
+      evaluationBefore: evaluationBest,
+      evaluationAfter,
+      delta,
+      mateInBefore,
+      mateInAgainst,
+    });
     const tag = tagMove(
       {
         ply,
@@ -357,6 +377,7 @@ async function runAnalysis(request: AnalysisRequest): Promise<AnalysisResponse> 
       pv: pvSan,
       delta_cp: delta,
       tag,
+      patterns,
     });
 
     ply += 1;
