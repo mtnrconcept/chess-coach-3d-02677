@@ -33,6 +33,20 @@ const START_SQUARES: Record<'w' | 'b', Record<string, string[]>> = {
   },
 };
 
+function isKingInCheck(chess: Chess): boolean {
+  const modern = chess as Chess & { inCheck?: () => boolean };
+  if (typeof modern.inCheck === "function") {
+    return modern.inCheck();
+  }
+
+  const legacy = chess as Chess & { in_check?: () => boolean };
+  if (typeof legacy.in_check === "function") {
+    return legacy.in_check();
+  }
+
+  return false;
+}
+
 export type GamePhase = "opening" | "middlegame" | "endgame";
 
 export interface CoachingInsights {
@@ -218,7 +232,7 @@ function buildSuggestions({ chess, move, perspective, perspectiveScore, gamePhas
       suggestions.add("Connectez vos tours pour préparer le jeu des colonnes");
     }
   } else {
-    if (chess.in_check()) {
+    if (isKingInCheck(chess)) {
       suggestions.add("Parer l'échec immédiatement : fuite du roi, blocage ou capture");
     }
     if (move.captured) {
@@ -265,7 +279,7 @@ interface RiskContext {
 function detectRisks({ chess, perspective, perspectiveScore, history, isOpponentMove, gamePhase }: RiskContext): string[] {
   const warnings: string[] = [];
 
-  if (isOpponentMove && chess.in_check()) {
+  if (isOpponentMove && isKingInCheck(chess)) {
     warnings.push("Votre roi est en échec, réagissez immédiatement");
   }
 
