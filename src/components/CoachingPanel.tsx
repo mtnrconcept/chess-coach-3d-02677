@@ -23,6 +23,7 @@ export function CoachingPanel({ comment, analysis, isAnalyzing, language, isEnab
     rate: config.speech.rate,
     pitch: config.speech.pitch,
     volume: config.speech.volume,
+    language: config.speech.language,
   });
 
   const getCommentType = () => {
