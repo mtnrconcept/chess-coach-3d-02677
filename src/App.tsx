@@ -3,10 +3,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import ChessHome from "./pages/ChessHome";
-import ChessGame from "./pages/ChessGame";
-import Lobby from "./pages/Lobby";
-import NotFound from "./pages/NotFound";
+import { ChessHome, ChessGame, Lobby } from "@/features/play";
+import { NotFound } from "@/features/app";
 
 const queryClient = new QueryClient();
 

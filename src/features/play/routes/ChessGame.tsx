@@ -17,7 +17,7 @@ import { GameTimer } from "@/components/GameTimer";
 import { MoveHistory } from "@/components/MoveHistory";
 import { CoachingPanel } from "@/components/CoachingPanel";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/services/supabase/client";
 import {
   analyzePlayerMove,
   analyzeAIMove,
@@ -51,7 +51,7 @@ import {
   posToAlgebraic,
   type ChessJsEngineAdapter,
   type ExtendedGameState,
-} from "@/lib/variantEngineAdapter";
+} from "@/engine/variantEngineAdapter";
 
 function AnimatedCamera() {
   const cameraRef = useRef<any>(null);

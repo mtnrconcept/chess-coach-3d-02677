@@ -18,7 +18,7 @@ export interface Piece {
   id: string;
   type: PieceType;
   color: Color;
-  tags?: Record<string, any>; // états temporaires (ex: berserk, mutant, etc.)
+  tags?: Record<string, unknown>; // états temporaires (ex: berserk, mutant, etc.)
 }
 
 /** Coord (0..7) */
@@ -29,7 +29,7 @@ export interface Move {
   from: Pos;
   to: Pos;
   promotion?: PieceType;     // promotion standard (laisse ton moteur la gérer)
-  meta?: Record<string, any>; // infos variantes (tir, explosion, etc.)
+  meta?: Record<string, unknown>; // infos variantes (tir, explosion, etc.)
 }
 
 /** Case du plateau */
@@ -47,11 +47,11 @@ export interface GameState {
     move: Move;
     movedPiece: Piece;
     capturedPiece?: Piece;
-    snapshot?: any;
+    snapshot?: unknown;
   }[];
   flags: {                  // flags par camp pour "1x/partie", cooldowns, etc.
-    white: Record<string, any>;
-    black: Record<string, any>;
+    white: Record<string, unknown>;
+    black: Record<string, unknown>;
   };
   graveyard: {              // pièces capturées (utile pour parachutage, retour, etc.)
     white: Piece[];
