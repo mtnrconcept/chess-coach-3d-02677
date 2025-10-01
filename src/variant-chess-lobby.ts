@@ -1338,6 +1338,7 @@ export function createMatch(
   const rule = getRuleById(ruleId);
   if (!rule) throw new Error(`Règle inconnue: ${ruleId}`);
   const composite = new RuleComposite([rule]); // 1 règle par salle
+  composite.onTurnStart(initialState, engine);
   return {
     id: `match-${Date.now()}`,
     vsAI,
