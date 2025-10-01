@@ -1,0 +1,48 @@
+{
+  "id": "94cf293e-56af-4dbb-b2db-339fb43b5f51",
+  "name": "Capitaine Tactique",
+  "elo_target": 1100,
+  "style": {
+    "label": "Tacticien",
+    "personality": "Cherche les fourchettes et tactiques simples, mais peut oublier sa défense",
+    "description": "Un adversaire idéal pour progresser: il développe ses pièces rapidement, prépare des attaques sur le roi et peut sacrifier du matériel pour l'initiative.",
+    "traits": [
+      "Préférence pour les positions ouvertes",
+      "Menaces tactiques directes",
+      "Parfois impatient en finale"
+    ],
+    "engine": {
+      "skillLevel": 5,
+      "uciElo": 1100,
+      "limitStrength": true,
+      "multiPv": 3,
+      "contempt": 0,
+      "randomness": {
+        "candidateWeights": [0.7, 0.2, 0.1],
+        "maxDeltaCentipawns": 80
+      },
+      "limits": {
+        "moveTimeMs": 650
+      }
+    }
+  },
+  "book": {
+    "lines": [
+      {
+        "name": "Sicilienne classique",
+        "moves": ["e4", "c5", "Nf3", "d6", "d4", "cxd4", "Nxd4", "Nf6", "Nc3", "Nc6"],
+        "weight": 5
+      },
+      {
+        "name": "Variante d'avance française",
+        "moves": ["e4", "e6", "d4", "d5", "e5", "c5", "c3", "Nc6", "Nf3", "Qb6"],
+        "weight": 3
+      },
+      {
+        "name": "Défense Scandinave active",
+        "moves": ["e4", "d5", "exd5", "Qxd5", "Nc3", "Qa5", "d4", "c6"],
+        "weight": 2
+      }
+    ]
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "id": "e458fd2b-ada4-47f9-bc34-4bc16e631fbb",
+  "name": "Apprenti",
+  "elo_target": 450,
+  "style": {
+    "label": "Débutant",
+    "personality": "Joueur prudent qui apprend encore les schémas de base",
+    "description": "Idéal pour les premières parties: l'Apprenti commet des imprécisions, développe lentement ses pièces et accepte volontiers les échanges simples.",
+    "traits": [
+      "Priorité aux coups naturels",
+      "Peu de tactiques",
+      "Favorise les structures symétriques"
+    ],
+    "engine": {
+      "skillLevel": 1,
+      "uciElo": 600,
+      "limitStrength": true,
+      "multiPv": 2,
+      "contempt": -10,
+      "randomness": {
+        "candidateWeights": [0.6, 0.3, 0.1],
+        "maxDeltaCentipawns": 120
+      },
+      "limits": {
+        "moveTimeMs": 350
+      }
+    }
+  },
+  "book": {
+    "lines": [
+      {
+        "name": "Italienne lente",
+        "moves": ["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "d3", "d6"],
+        "weight": 4
+      },
+      {
+        "name": "Giuoco Pianissimo",
+        "moves": ["e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "d3", "Bc5"],
+        "weight": 3
+      },
+      {
+        "name": "Ouverture du pion dame simplifiée",
+        "moves": ["d4", "d5", "Nf3", "Nf6", "e3", "e6", "Bd3", "Bd6"],
+        "weight": 3
+      }
+    ]
+  }
+}
