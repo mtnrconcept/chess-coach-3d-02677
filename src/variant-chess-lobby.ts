@@ -63,7 +63,11 @@ export interface GameState {
 export interface EngineApi {
   isInCheck(state: GameState, color: Color): boolean;              // roi en échec ?
   isLegalStandardMove(state: GameState, move: Move): boolean;      // coup standard légal (inclut interdiction d’exposer le roi)
-  applyStandardMove(state: GameState, move: Move): GameState;      // applique coup standard (+ promotion standard si move.promotion)
+  applyStandardMove(
+    state: GameState,
+    move: Move,
+    options?: { simulate?: boolean }
+  ): GameState;      // applique coup standard (+ promotion standard si move.promotion)
   cloneState(state: GameState): GameState;                         // clone profond
   getPieceAt(state: GameState, pos: Pos): Piece | undefined;
   setPieceAt(state: GameState, pos: Pos, piece?: Piece): void;
@@ -112,10 +116,17 @@ export class RuleComposite implements RuleHooks {
       if (p.onGenerateExtraMoves) extras.push(...(p.onGenerateExtraMoves(state, pos, piece, api) || []));
     }
     // Filtrer les coups qui exposeraient le roi (sécurité stricte)
+    const simulationApi: EngineApi = {
+      ...api,
+      applyStandardMove(simState, move, opts) {
+        return api.applyStandardMove(simState, move, { ...opts, simulate: true });
+      },
+    };
+
     return extras.filter(m => {
       const sim = api.cloneState(state);
       if (this.onBeforeMoveApply) {
-        const res = this.onBeforeMoveApply(sim, m, api);
+        const res = this.onBeforeMoveApply(sim, m, simulationApi);
         if (!res.allow) return false;
         res.transform?.(sim);
       } else {
