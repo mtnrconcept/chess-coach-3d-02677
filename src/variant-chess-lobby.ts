@@ -180,6 +180,108 @@ const neighbors8 = [
 function eqPos(a: Pos, b: Pos) { return a.x===b.x && a.y===b.y; }
 function clone<T>(x: T): T { return JSON.parse(JSON.stringify(x)); }
 
+const externalRules = new Map<string, RulePlugin>();
+const externalRuleSources = new Map<string, string>();
+
+export interface ExternalRuleRegistrationResult {
+  ok: boolean;
+  reused?: boolean;
+  error?: string;
+}
+
+export interface ExternalRuleHelpers {
+  clone: <T>(value: T) => T;
+  eqPos: (a: Pos, b: Pos) => boolean;
+  dirs: { rook: Pos[]; bishop: Pos[] };
+  neighbors: (pos: Pos) => Pos[];
+  createMove: (from: Pos, to: Pos, meta?: Move['meta']) => Move;
+  ruleId: string;
+}
+
+function buildExternalHelpers(ruleId: string): ExternalRuleHelpers {
+  return {
+    clone,
+    eqPos,
+    dirs: { rook: dirsRook.map(clone), bishop: dirsBishop.map(clone) },
+    neighbors(pos) {
+      const around: Pos[] = [];
+      for (const delta of neighbors8) {
+        around.push({ x: pos.x + delta.x, y: pos.y + delta.y });
+      }
+      return around;
+    },
+    createMove(from, to, meta) {
+      return { from: clone(from), to: clone(to), meta: meta ? { ...meta } : undefined };
+    },
+    ruleId,
+  };
+}
+
+function normaliseRulePlugin(ruleId: string, candidate: unknown): RulePlugin {
+  if (!candidate || typeof candidate !== 'object') {
+    throw new Error('Le module généré ne retourne pas un objet de règle valide.');
+  }
+
+  const plugin = candidate as Partial<RulePlugin>;
+  if (!plugin.id || typeof plugin.id !== 'string') {
+    plugin.id = ruleId;
+  }
+
+  if (plugin.id !== ruleId) {
+    plugin.id = ruleId;
+  }
+
+  if (!plugin.name || typeof plugin.name !== 'string') {
+    plugin.name = `Variante ${ruleId}`;
+  }
+
+  if (!plugin.description || typeof plugin.description !== 'string') {
+    plugin.description = 'Variante personnalisée générée automatiquement.';
+  }
+
+  return plugin as RulePlugin;
+}
+
+export function registerExternalRule(rule: RulePlugin): ExternalRuleRegistrationResult {
+  externalRules.set(rule.id, rule);
+  return { ok: true };
+}
+
+export function registerExternalRuleFromSource(ruleId: string, source: string): ExternalRuleRegistrationResult {
+  if (!source || typeof source !== 'string') {
+    return { ok: false, error: 'Aucun code de variante fourni.' };
+  }
+
+  const existingSource = externalRuleSources.get(ruleId);
+  if (existingSource && existingSource === source && externalRules.has(ruleId)) {
+    return { ok: true, reused: true };
+  }
+
+  try {
+    const body = `"use strict";\n${source}\nreturn module.exports ?? exports.default ?? exports;`;
+    // eslint-disable-next-line no-new-func
+    const factory = new Function('exports', 'module', 'helpers', body);
+    const exportsObj: Record<string, unknown> = {};
+    const moduleObj: { exports: unknown } = { exports: exportsObj };
+    const helpers = buildExternalHelpers(ruleId);
+    const returned = factory(exportsObj, moduleObj, helpers);
+    const plugin = normaliseRulePlugin(ruleId, returned ?? moduleObj.exports ?? (exportsObj as { default?: unknown }).default ?? exportsObj);
+    externalRules.set(ruleId, plugin);
+    externalRuleSources.set(ruleId, source);
+    return { ok: true };
+  } catch (error) {
+    console.error('Failed to register external rule', error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Erreur inconnue lors du chargement du code de variante.'
+    };
+  }
+}
+
+export function getExternalRuleSource(ruleId: string): string | undefined {
+  return externalRuleSources.get(ruleId);
+}
+
 function firstPieceOnRay(state: GameState, api: EngineApi, from: Pos, dir: Pos): { pos: Pos, piece: Piece } | undefined {
   let p = { x: from.x + dir.x, y: from.y + dir.y };
   while (api.inBounds(p)) {
@@ -1314,7 +1416,7 @@ export const ALL_RULES: RulePlugin[] = [
 
 /** Cherche une règle par id */
 export function getRuleById(id: string): RulePlugin | undefined {
-  return ALL_RULES.find(r => r.id === id);
+  return externalRules.get(id) ?? ALL_RULES.find(r => r.id === id);
 }
 
 // ---------------------------------------------------------------------------

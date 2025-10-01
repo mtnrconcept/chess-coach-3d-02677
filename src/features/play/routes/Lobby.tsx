@@ -14,7 +14,11 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { lobbyRooms as embeddedLobbyRooms, getRuleById } from "@/variant-chess-lobby";
+import {
+  lobbyRooms as embeddedLobbyRooms,
+  getRuleById,
+  registerExternalRuleFromSource,
+} from "@/variant-chess-lobby";
 import { toast } from "sonner";
 import { Clock, Users, Sword, Hourglass, PlusCircle, XCircle, AlertTriangle } from "lucide-react";
 
@@ -83,6 +87,42 @@ type VariantLobbyEntry = {
   prompt: string | null;
   createdAt: string | null;
   displayOrder: number | null;
+  metadata: VariantMetadata;
+};
+
+type VariantMetadata = {
+  slug?: string;
+  plugin?: {
+    source?: string | null;
+    ruleId?: string | null;
+    createdAt?: string | null;
+    warning?: string | null;
+  };
+};
+
+const parseVariantMetadata = (metadata: unknown): VariantMetadata => {
+  if (!metadata || typeof metadata !== "object") {
+    return {};
+  }
+
+  const base = metadata as Record<string, unknown>;
+  const parsed: VariantMetadata = {};
+
+  if (typeof base.slug === "string") {
+    parsed.slug = base.slug;
+  }
+
+  if (base.plugin && typeof base.plugin === "object") {
+    const plugin = base.plugin as Record<string, unknown>;
+    parsed.plugin = {
+      source: typeof plugin.source === "string" ? plugin.source : undefined,
+      ruleId: typeof plugin.ruleId === "string" ? plugin.ruleId : undefined,
+      createdAt: typeof plugin.createdAt === "string" ? plugin.createdAt : undefined,
+      warning: typeof plugin.warning === "string" ? plugin.warning : undefined,
+    };
+  }
+
+  return parsed;
 };
 
 export default function Lobby() {
@@ -101,6 +141,7 @@ export default function Lobby() {
   const [isVariantFallback, setIsVariantFallback] = useState(false);
   const [variantFallbackReason, setVariantFallbackReason] = useState<string | null>(null);
   const [variantServiceStatus, setVariantServiceStatus] = useState<"ready" | "missing">("ready");
+  const [variantRuleErrors, setVariantRuleErrors] = useState<Record<string, string>>({});
 
   const isMissingVariantRelationError = useCallback((error: unknown): error is PostgrestError => {
     if (!error || typeof error !== "object") {
@@ -154,18 +195,22 @@ export default function Lobby() {
       return [];
     }
 
-    return variantQuery.data.map((row) => ({
-      id: row.id,
-      title: row.title,
-      ruleId: row.rule_id,
-      description: row.summary,
-      rules: row.rules,
-      source: row.source,
-      difficulty: row.difficulty ?? null,
-      prompt: row.prompt ?? null,
-      createdAt: row.created_at,
-      displayOrder: row.display_order ?? null,
-    }));
+    return variantQuery.data.map((row) => {
+      const metadata = parseVariantMetadata(row.metadata);
+      return {
+        id: row.id,
+        title: row.title,
+        ruleId: row.rule_id ?? metadata.plugin?.ruleId ?? null,
+        description: row.summary,
+        rules: row.rules,
+        source: row.source,
+        difficulty: row.difficulty ?? null,
+        prompt: row.prompt ?? null,
+        createdAt: row.created_at,
+        displayOrder: row.display_order ?? null,
+        metadata,
+      };
+    });
   }, [variantQuery.data]);
 
   const embeddedVariants = useMemo<VariantLobbyEntry[]>(
@@ -181,6 +226,7 @@ export default function Lobby() {
         prompt: null,
         createdAt: null,
         displayOrder: index + 1,
+        metadata: {},
       })),
     []
   );
@@ -198,10 +244,30 @@ export default function Lobby() {
   );
 
   const isVariantAutomated = Boolean(selectedVariantRule);
+  const selectedVariantAutomationError = selectedVariantData ? variantRuleErrors[selectedVariantData.id] : null;
+  const selectedVariantPluginWarning = selectedVariantData?.metadata.plugin?.warning ?? null;
+  const selectedVariantHasPluginSource = Boolean(selectedVariantData?.metadata.plugin?.source);
+
+  useEffect(() => {
+    const errors: Record<string, string> = {};
+
+    for (const variant of remoteVariants) {
+      const pluginSource = variant.metadata.plugin?.source;
+      const ruleId = variant.ruleId ?? variant.metadata.plugin?.ruleId ?? null;
+      if (!pluginSource || !ruleId) {
+        continue;
+      }
+
+      const registration = registerExternalRuleFromSource(ruleId, pluginSource);
+      if (!registration.ok) {
+        errors[variant.id] = registration.error ?? "Erreur lors du chargement du code de la variante.";
+      }
+    }
+
+    setVariantRuleErrors(errors);
+  }, [remoteVariants]);
   const variantCount = variantRooms.length;
   const isGeneratedVariant = selectedVariantData?.source === 'generated';
-  const isVariantRuleMissing = Boolean(selectedVariantData) && !selectedVariantData.ruleId;
-
   const isVariantLoading = variantQuery.isLoading && remoteVariants.length === 0;
 
   useEffect(() => {
@@ -810,13 +876,33 @@ export default function Lobby() {
                             Mode&nbsp;: {gameMode === 'ai' ? 'vs IA' : 'Local'}
                           </span>
                         </div>
-                        {(!isVariantAutomated || isVariantRuleMissing) && (
+                        {selectedVariantAutomationError && (
+                          <Alert className="border-destructive/40 bg-destructive/10 text-destructive">
+                            <AlertTriangle className="h-5 w-5" />
+                            <AlertTitle className="text-sm font-semibold">Code de variante indisponible</AlertTitle>
+                            <AlertDescription className="text-xs leading-relaxed">
+                              Impossible d’activer l’automatisation : {selectedVariantAutomationError}. La partie utilisera les
+                              règles classiques tant que le code n’est pas corrigé.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        {!selectedVariantAutomationError && selectedVariantPluginWarning && (
+                          <Alert className="border-amber-300/60 bg-amber-500/10 text-amber-900 dark:text-amber-100">
+                            <AlertTriangle className="h-5 w-5" />
+                            <AlertTitle className="text-sm font-semibold">Automatisation partielle</AlertTitle>
+                            <AlertDescription className="text-xs leading-relaxed">
+                              {selectedVariantPluginWarning}
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        {!selectedVariantAutomationError && !isVariantAutomated && (
                           <Alert className="border-amber-300/60 bg-amber-500/10 text-amber-900 dark:text-amber-100">
                             <AlertTriangle className="h-5 w-5" />
                             <AlertTitle className="text-sm font-semibold">Variante descriptive</AlertTitle>
                             <AlertDescription className="text-xs leading-relaxed">
-                              Cette variante ne possède pas encore de règles automatisées. La partie démarrera avec les règles
-                              classiques : suivez les instructions du texte généré pour pimenter la partie.
+                              {selectedVariantHasPluginSource
+                                ? "Cette variante dispose d’un code en attente d’activation. Les règles classiques seront appliquées tant que l’automatisation n’est pas fonctionnelle."
+                                : "Cette variante ne possède pas encore de règles automatisées. La partie démarrera avec les règles classiques : suivez les instructions du texte généré pour pimenter la partie."}
                             </AlertDescription>
                           </Alert>
                         )}
