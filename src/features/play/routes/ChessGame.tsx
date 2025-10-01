@@ -54,6 +54,33 @@ import {
   type ExtendedGameState,
 } from "@/engine/variantEngineAdapter";
 
+type LobbyVariant = {
+  id: string;
+  title: string;
+  ruleId: string | null;
+  description: string;
+  rules: string;
+  source?: string;
+  difficulty?: string | null;
+  prompt?: string | null;
+};
+
+type GameLocationState = {
+  timeControl?: {
+    name: string;
+    time: string;
+    minutes: number;
+    increment: number;
+    description?: string;
+  };
+  eloLevel?: { name: string; elo: string; color?: string };
+  coachingMode?: boolean;
+  gameMode?: 'ai' | 'local';
+  variant?: LobbyVariant | null;
+  liveEval?: boolean;
+  liveEvalUrl?: string;
+};
+
 function AnimatedCamera() {
   const cameraRef = useRef<any>(null);
   const controlsRef = useRef<any>(null);
@@ -90,7 +117,7 @@ function AnimatedCamera() {
 export default function ChessGame() {
   const location = useLocation();
   const navigate = useNavigate();
-  const gameState = location.state || {};
+  const gameState = (location.state as GameLocationState | undefined) ?? {};
   
   const [chess] = useState(new Chess());
   const [gamePosition, setGamePosition] = useState(chess.fen());
@@ -111,9 +138,9 @@ export default function ChessGame() {
 
   // Game mode: 'ai' or 'local' (player vs player)
   const [gameMode] = useState<'ai' | 'local'>(gameState.gameMode || 'ai');
-  
+
   // Variant rules
-  const [activeVariant] = useState(gameState.variant || null);
+  const [activeVariant] = useState<LobbyVariant | null>(gameState.variant ?? null);
   
   // Timer states
   const [whiteTime, setWhiteTime] = useState(gameState.timeControl?.minutes * 60 || 300);
@@ -131,6 +158,8 @@ export default function ChessGame() {
   const [availableSpecialMoves, setAvailableSpecialMoves] = useState<VariantMove[]>([]);
   const [isSpecialDialogOpen, setIsSpecialDialogOpen] = useState(false);
   const [pendingSpecialMoves, setPendingSpecialMoves] = useState<VariantMove[]>([]);
+  const [isVariantReady, setIsVariantReady] = useState(false);
+  const variantWarningRef = useRef<string | null>(null);
 
   const describeSpecialMove = (move: VariantMove) => {
     const base = move.meta?.label || move.meta?.special || 'coup spécial';
@@ -238,27 +267,83 @@ export default function ChessGame() {
   }, [displayHistory]);
 
   useEffect(() => {
+    setIsVariantReady(false);
+
     if (!activeVariant) {
       variantMatchRef.current = null;
       variantEngineRef.current = null;
       setAvailableSpecialMoves([]);
+      variantWarningRef.current = null;
+      return;
+    }
+
+    if (!activeVariant.ruleId) {
+      variantMatchRef.current = null;
+      variantEngineRef.current = null;
+      setAvailableSpecialMoves([]);
+      chess.reset();
+      const fen = chess.fen();
+      setGamePosition(fen);
+      setCurrentPlayer('w');
+      setIsWhiteTurn(true);
+      setMoveHistory([]);
+      setDisplayHistory([]);
+      moveHistoryRef.current = [];
+      displayHistoryRef.current = [];
+      setLastMove(null);
+      if (variantWarningRef.current !== `custom-${activeVariant.id}`) {
+        toast.info(`La variante « ${activeVariant.title} » est descriptive. Les règles classiques seront appliquées.`);
+        variantWarningRef.current = `custom-${activeVariant.id}`;
+      }
       return;
     }
 
     const adapter = createChessJsEngineAdapter(chess);
     variantEngineRef.current = adapter;
-    const match = createMatch(adapter.engine, adapter.initialState as GameState, activeVariant.ruleId, gameMode === 'ai');
-    variantMatchRef.current = match;
-    const fen = adapter.stateToFen(match.state as ExtendedGameState);
-    setGamePosition(fen);
-    chess.load(fen);
-    setCurrentPlayer(match.state.turn === 'white' ? 'w' : 'b');
-    setIsWhiteTurn(match.state.turn === 'white');
-    setMoveHistory([]);
-    setDisplayHistory([]);
-    moveHistoryRef.current = [];
-    displayHistoryRef.current = [];
-    setLastMove(null);
+
+    try {
+      const match = createMatch(
+        adapter.engine,
+        adapter.initialState as GameState,
+        activeVariant.ruleId,
+        gameMode === 'ai'
+      );
+      variantMatchRef.current = match;
+      const fen = adapter.stateToFen(match.state as ExtendedGameState);
+      setGamePosition(fen);
+      chess.load(fen);
+      setCurrentPlayer(match.state.turn === 'white' ? 'w' : 'b');
+      setIsWhiteTurn(match.state.turn === 'white');
+      setMoveHistory([]);
+      setDisplayHistory([]);
+      moveHistoryRef.current = [];
+      displayHistoryRef.current = [];
+      setLastMove(null);
+      setAvailableSpecialMoves([]);
+      setIsVariantReady(true);
+      variantWarningRef.current = null;
+    } catch (error) {
+      console.error('Failed to initialise variant', error);
+      variantMatchRef.current = null;
+      variantEngineRef.current = null;
+      setAvailableSpecialMoves([]);
+      chess.reset();
+      const fen = chess.fen();
+      setGamePosition(fen);
+      setCurrentPlayer('w');
+      setIsWhiteTurn(true);
+      setMoveHistory([]);
+      setDisplayHistory([]);
+      moveHistoryRef.current = [];
+      displayHistoryRef.current = [];
+      setLastMove(null);
+      if (variantWarningRef.current !== `error-${activeVariant.id}`) {
+        toast.error(
+          `Impossible de charger la variante « ${activeVariant.title} ». Les règles standards seront utilisées.`
+        );
+        variantWarningRef.current = `error-${activeVariant.id}`;
+      }
+    }
   }, [activeVariant, chess, gameMode]);
 
   const provideCoachingFeedback = async (move: ChessJsMove, updatedHistory: ChessJsMove[], isOpponentMove = false) => {
@@ -526,6 +611,11 @@ export default function ChessGame() {
       return;
     }
 
+    if (!isVariantReady) {
+      toast.info("Cette variante ne propose pas de coups spéciaux automatisés.");
+      return;
+    }
+
     if (!selectedSquare) {
       toast.info("Sélectionnez d'abord une pièce.");
       return;
@@ -658,7 +748,7 @@ export default function ChessGame() {
           </div>
 
           <div className="flex gap-2">
-            {activeVariant && (
+            {isVariantReady && activeVariant && (
               <Button variant="outline" onClick={handleSpecialMove} className="hover-lift">
                 <Sparkles className="w-4 h-4 mr-2" />
                 Attaque spéciale
