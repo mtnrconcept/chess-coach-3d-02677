@@ -40,6 +40,7 @@ interface CoachLanguageConfig {
     rate: number;
     pitch: number;
     volume: number;
+    language: string;
   };
   opponentPrefix: string;
   enginePrefix: string;
@@ -84,6 +85,7 @@ const LANGUAGE_CONFIG: Record<CoachLanguage, CoachLanguageConfig> = {
       rate: 0.94,
       pitch: 1.04,
       volume: 0.9,
+      language: "fr-FR",
     },
     opponentPrefix: "Adversaire",
     enginePrefix: "IA",
@@ -126,6 +128,7 @@ const LANGUAGE_CONFIG: Record<CoachLanguage, CoachLanguageConfig> = {
       rate: 1,
       pitch: 1,
       volume: 0.9,
+      language: "en-US",
     },
     opponentPrefix: "Opponent",
     enginePrefix: "AI",
@@ -168,6 +171,7 @@ const LANGUAGE_CONFIG: Record<CoachLanguage, CoachLanguageConfig> = {
       rate: 0.98,
       pitch: 1,
       volume: 0.9,
+      language: "es-ES",
     },
     opponentPrefix: "Oponente",
     enginePrefix: "IA",
