@@ -1,0 +1,48 @@
+{
+  "id": "bd89f893-a075-4942-9ad2-553b96aaf01e",
+  "name": "Architecte de Gambits",
+  "elo_target": 1550,
+  "style": {
+    "label": "Gambits",
+    "personality": "Adore sacrifier des pions pour l'activité et attaque sans relâche",
+    "description": "Ce profil prend des risques calculés, crée des positions déséquilibrées et punit les défenses passives. Préparez-vous à défendre avec précision!",
+    "traits": [
+      "Sacrifices de pions thématiques",
+      "Initiative permanente",
+      "Recherche de déséquilibres"
+    ],
+    "engine": {
+      "skillLevel": 10,
+      "uciElo": 1500,
+      "limitStrength": true,
+      "multiPv": 4,
+      "contempt": 5,
+      "randomness": {
+        "candidateWeights": [0.65, 0.25, 0.1],
+        "maxDeltaCentipawns": 60
+      },
+      "limits": {
+        "moveTimeMs": 900
+      }
+    }
+  },
+  "book": {
+    "lines": [
+      {
+        "name": "Gambit roi accepté",
+        "moves": ["e4", "e5", "f4", "exf4", "Nf3", "g5", "h4", "g4", "Ne5"],
+        "weight": 4
+      },
+      {
+        "name": "Gambit de Budapest",
+        "moves": ["d4", "Nf6", "c4", "e5", "dxe5", "Ng4", "Nf3", "Nc6", "Bf4", "Bb4+"],
+        "weight": 3
+      },
+      {
+        "name": "Gambit Benko",
+        "moves": ["d4", "Nf6", "c4", "c5", "d5", "b5", "cxb5", "a6", "bxa6", "g6", "Nc3", "Bg7"],
+        "weight": 3
+      }
+    ]
+  }
+}

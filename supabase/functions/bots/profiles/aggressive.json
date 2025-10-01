@@ -1,0 +1,48 @@
+{
+  "id": "bb61eeb3-c0f7-459e-a2cd-d45d72ba2ab6",
+  "name": "Attaquant Foudroyant",
+  "elo_target": 2050,
+  "style": {
+    "label": "Agressif",
+    "personality": "Toujours en quête de complications, il ouvre les colonnes contre le roi adverse",
+    "description": "Un maître des attaques directes: l'Attaquant Foudroyant privilégie les lignes aiguës, sacrifie du matériel pour l'initiative et attaque sur les cases faibles.",
+    "traits": [
+      "Attaques sur le roi",
+      "Pression permanente",
+      "Refuse les finales calmes"
+    ],
+    "engine": {
+      "skillLevel": 14,
+      "uciElo": 2050,
+      "limitStrength": true,
+      "multiPv": 4,
+      "contempt": 15,
+      "randomness": {
+        "candidateWeights": [0.75, 0.2, 0.05],
+        "maxDeltaCentipawns": 45
+      },
+      "limits": {
+        "moveTimeMs": 1100
+      }
+    }
+  },
+  "book": {
+    "lines": [
+      {
+        "name": "Dragon accéléré",
+        "moves": ["e4", "c5", "Nf3", "Nc6", "d4", "cxd4", "Nxd4", "g6", "Nc3", "Bg7", "Be3", "Nf6", "Qd2", "O-O", "O-O-O"],
+        "weight": 4
+      },
+      {
+        "name": "Attaque de l'indienne du roi",
+        "moves": ["d4", "Nf6", "c4", "g6", "Nc3", "Bg7", "e4", "d6", "f3", "O-O", "Be3", "Nc6", "Qd2", "a6", "O-O-O"],
+        "weight": 3
+      },
+      {
+        "name": "Gambit Evans",
+        "moves": ["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "b4", "Bxb4", "c3", "Ba5", "d4", "exd4", "O-O"],
+        "weight": 3
+      }
+    ]
+  }
+}

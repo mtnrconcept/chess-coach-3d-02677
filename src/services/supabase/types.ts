@@ -53,6 +53,33 @@ export type Database = {
         }
         Relationships: []
       }
+      bot_profiles: {
+        Row: {
+          book: Json
+          created_at: string
+          elo_target: number
+          id: string
+          name: string
+          style: Json
+        }
+        Insert: {
+          book: Json
+          created_at?: string
+          elo_target: number
+          id?: string
+          name: string
+          style: Json
+        }
+        Update: {
+          book?: Json
+          created_at?: string
+          elo_target?: number
+          id?: string
+          name?: string
+          style?: Json
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
