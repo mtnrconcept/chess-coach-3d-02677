@@ -7,7 +7,7 @@ import { OrbitControls, PerspectiveCamera, Environment } from "@react-three/drei
 import type { DirectionalLight } from "three";
 import { FbxChessSet } from "@/components/FbxChessSet";
 import { Chess } from "chess.js";
-import type { Move } from "chess.js";
+import type { Move as ChessJsMove } from "chess.js";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,23 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { GameState, Match, Move as VariantMove, PieceType } from "@/variant-chess-lobby";
+import { createMatch, generateMoves, playMove } from "@/variant-chess-lobby";
+import {
+  algebraicToPos,
+  createChessJsEngineAdapter,
+  posToAlgebraic,
+  type ChessJsEngineAdapter,
+  type ExtendedGameState,
+} from "@/lib/variantEngineAdapter";
 
 function AnimatedCamera() {
   const cameraRef = useRef<any>(null);
@@ -81,7 +98,8 @@ export default function ChessGame() {
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [possibleMoves, setPossibleMoves] = useState<string[]>([]);
   const [lastMove, setLastMove] = useState<{ from: string; to: string } | null>(null);
-  const [moveHistory, setMoveHistory] = useState<Move[]>([]);
+  const [moveHistory, setMoveHistory] = useState<ChessJsMove[]>([]);
+  const [displayHistory, setDisplayHistory] = useState<any[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [coachingComment, setCoachingComment] = useState<string>("");
   const [analysisDetails, setAnalysisDetails] = useState<CoachingInsights | null>(null);
@@ -103,8 +121,72 @@ export default function ChessGame() {
   const boardRef = useRef<any>();
   const playerMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const aiMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const moveHistoryRef = useRef<Move[]>([]);
+  const moveHistoryRef = useRef<ChessJsMove[]>([]);
+  const displayHistoryRef = useRef<any[]>([]);
   const coachingRequestId = useRef(0);
+  const variantMatchRef = useRef<Match | null>(null);
+  const variantEngineRef = useRef<ChessJsEngineAdapter | null>(null);
+  const [availableSpecialMoves, setAvailableSpecialMoves] = useState<VariantMove[]>([]);
+  const [isSpecialDialogOpen, setIsSpecialDialogOpen] = useState(false);
+  const [pendingSpecialMoves, setPendingSpecialMoves] = useState<VariantMove[]>([]);
+
+  const describeSpecialMove = (move: VariantMove) => {
+    const base = move.meta?.label || move.meta?.special || 'coup spécial';
+    const target = posToAlgebraic(move.to);
+    return `${base.replace(/_/g, ' ')} → ${target}`;
+  };
+
+  const promotionCharToPiece: Record<string, PieceType> = {
+    q: 'queen',
+    r: 'rook',
+    b: 'bishop',
+    n: 'knight',
+  };
+
+  const recordStandardMove = (move: ChessJsMove, movingColor: 'white' | 'black') => {
+    const updatedHistory = [...moveHistoryRef.current, move];
+    moveHistoryRef.current = updatedHistory;
+    setMoveHistory(updatedHistory);
+
+    const updatedDisplay = [...displayHistoryRef.current, move];
+    displayHistoryRef.current = updatedDisplay;
+    setDisplayHistory(updatedDisplay);
+
+    if (isCoachEnabled) {
+      void provideCoachingFeedback(move, updatedHistory, gameMode === 'ai' && movingColor === 'black');
+    }
+  };
+
+  const recordSpecialMove = (move: VariantMove, movingColor: 'white' | 'black', description?: string) => {
+    const entry = {
+      color: movingColor === 'white' ? 'w' : 'b',
+      san: `★ ${description || describeSpecialMove(move)}`,
+      from: posToAlgebraic(move.from),
+      to: posToAlgebraic(move.to),
+      flags: '',
+    };
+    const updatedDisplay = [...displayHistoryRef.current, entry];
+    displayHistoryRef.current = updatedDisplay;
+    setDisplayHistory(updatedDisplay);
+  };
+
+  const updateGameStatusAfterMove = (movingColor: 'white' | 'black') => {
+    if (chess.isCheckmate()) {
+      setGameStatus('checkmate');
+      if (gameMode === 'ai') {
+        if (movingColor === 'white') {
+          toast.success("Échec et mat ! Vous gagnez !");
+        } else {
+          toast.error("Échec et mat ! L'ordinateur gagne !");
+        }
+      } else {
+        toast.success("Échec et mat !");
+      }
+    } else if (chess.isDraw()) {
+      setGameStatus('draw');
+      toast.info('Partie nulle !');
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -121,7 +203,35 @@ export default function ChessGame() {
     moveHistoryRef.current = moveHistory;
   }, [moveHistory]);
 
-  const provideCoachingFeedback = async (move: Move, updatedHistory: Move[], isOpponentMove = false) => {
+  useEffect(() => {
+    displayHistoryRef.current = displayHistory;
+  }, [displayHistory]);
+
+  useEffect(() => {
+    if (!activeVariant) {
+      variantMatchRef.current = null;
+      variantEngineRef.current = null;
+      setAvailableSpecialMoves([]);
+      return;
+    }
+
+    const adapter = createChessJsEngineAdapter(chess);
+    variantEngineRef.current = adapter;
+    const match = createMatch(adapter.engine, adapter.initialState as GameState, activeVariant.ruleId, gameMode === 'ai');
+    variantMatchRef.current = match;
+    const fen = adapter.stateToFen(match.state as ExtendedGameState);
+    setGamePosition(fen);
+    chess.load(fen);
+    setCurrentPlayer(match.state.turn === 'white' ? 'w' : 'b');
+    setIsWhiteTurn(match.state.turn === 'white');
+    setMoveHistory([]);
+    setDisplayHistory([]);
+    moveHistoryRef.current = [];
+    displayHistoryRef.current = [];
+    setLastMove(null);
+  }, [activeVariant, chess, gameMode]);
+
+  const provideCoachingFeedback = async (move: ChessJsMove, updatedHistory: ChessJsMove[], isOpponentMove = false) => {
     if (!isCoachEnabled) return;
 
     const localInsights = isOpponentMove
@@ -189,140 +299,186 @@ export default function ChessGame() {
     }
   }, []);
 
+  const executeVariantMove = (move: VariantMove, options?: { description?: string }) => {
+    const match = variantMatchRef.current;
+    const adapter = variantEngineRef.current;
+    if (!match || !adapter) return;
+
+    const movingColor = match.state.turn;
+    adapter.clearLastMoveResult();
+    const result = playMove(match, move);
+    if (!result.ok) {
+      toast.error(result.reason || "Coup spécial impossible");
+      return;
+    }
+
+    adapter.syncChessFromState(match.state as ExtendedGameState);
+    const fen = adapter.stateToFen(match.state as ExtendedGameState);
+    setGamePosition(fen);
+
+    const fromSquare = posToAlgebraic(move.from);
+    const toSquare = posToAlgebraic(move.to);
+    setLastMove({ from: fromSquare, to: toSquare });
+    setCurrentPlayer(chess.turn());
+    setIsWhiteTurn(chess.turn() === 'w');
+
+    const lastStandardMove = adapter.getLastMoveResult();
+    if (lastStandardMove) {
+      recordStandardMove(lastStandardMove as ChessJsMove, movingColor);
+    } else {
+      recordSpecialMove(move, movingColor, options?.description);
+    }
+
+    setSelectedSquare(null);
+    setPossibleMoves([]);
+    setAvailableSpecialMoves([]);
+
+    updateGameStatusAfterMove(movingColor);
+
+    if (gameMode === 'ai' && !chess.isGameOver() && chess.turn() === 'b') {
+      if (playerMoveTimeoutRef.current) {
+        clearTimeout(playerMoveTimeoutRef.current);
+      }
+      playerMoveTimeoutRef.current = setTimeout(() => {
+        playerMoveTimeoutRef.current = null;
+        makeAIMove();
+      }, 1000);
+    }
+  };
+
   const handleSquareClick = async (square: string) => {
-    // In AI mode, only allow white to play. In local mode, allow both players
     if (gameStatus !== 'playing') return;
     if (gameMode === 'ai' && chess.turn() === 'b') return;
 
     try {
       if (selectedSquare === square) {
-        // Deselect
         setSelectedSquare(null);
         setPossibleMoves([]);
+        setAvailableSpecialMoves([]);
         return;
       }
 
       if (selectedSquare && possibleMoves.includes(square)) {
-        // Make move
-        const move = chess.move({
-          from: selectedSquare,
-          to: square,
-          promotion: 'q', // Auto-promotion to queen
-        });
-
-        if (move) {
-          setGamePosition(chess.fen());
-          setLastMove({ from: selectedSquare, to: square });
-          const updatedHistory = [...moveHistory, move];
-          setMoveHistory(updatedHistory);
-          moveHistoryRef.current = updatedHistory;
-          setCurrentPlayer(chess.turn());
-          setIsWhiteTurn(!isWhiteTurn);
-          
-          // Check game status
-          if (chess.isCheckmate()) {
-            setGameStatus('checkmate');
-            toast.success(chess.turn() === 'b' ? "Échec et mat ! Vous gagnez !" : "Échec et mat ! L'ordinateur gagne !");
-          } else if (chess.isDraw()) {
-            setGameStatus('draw');
-            toast.info("Partie nulle !");
-          }
-
-          // Coaching mode comment
-          if (isCoachEnabled) {
-            void provideCoachingFeedback(move, updatedHistory);
-          }
-
-          // AI move after small delay (only in AI mode)
-          if (gameMode === 'ai' && !chess.isGameOver() && chess.turn() === 'b') {
-            if (playerMoveTimeoutRef.current) {
-              clearTimeout(playerMoveTimeoutRef.current);
+        if (variantMatchRef.current && variantEngineRef.current) {
+          const piece = chess.get(selectedSquare as any);
+          let promotion: 'queen' | undefined;
+          if (piece?.type === 'p') {
+            const targetRank = square[1];
+            if ((piece.color === 'w' && targetRank === '8') || (piece.color === 'b' && targetRank === '1')) {
+              promotion = 'queen';
             }
-            playerMoveTimeoutRef.current = setTimeout(() => {
-              playerMoveTimeoutRef.current = null;
-              makeAIMove();
-            }, 1000);
+          }
+          const move: VariantMove = {
+            from: algebraicToPos(selectedSquare),
+            to: algebraicToPos(square),
+            promotion,
+          };
+          executeVariantMove(move);
+        } else {
+          const move = chess.move({
+            from: selectedSquare,
+            to: square,
+            promotion: 'q',
+          });
+
+          if (move) {
+            setGamePosition(chess.fen());
+            setLastMove({ from: selectedSquare, to: square });
+            recordStandardMove(move as ChessJsMove, currentPlayer === 'w' ? 'white' : 'black');
+            setCurrentPlayer(chess.turn());
+            setIsWhiteTurn(chess.turn() === 'w');
+            updateGameStatusAfterMove(currentPlayer === 'w' ? 'white' : 'black');
+
+            if (gameMode === 'ai' && !chess.isGameOver() && chess.turn() === 'b') {
+              if (playerMoveTimeoutRef.current) {
+                clearTimeout(playerMoveTimeoutRef.current);
+              }
+              playerMoveTimeoutRef.current = setTimeout(() => {
+                playerMoveTimeoutRef.current = null;
+                makeAIMove();
+              }, 1000);
+            }
           }
         }
 
         setSelectedSquare(null);
         setPossibleMoves([]);
+        setAvailableSpecialMoves([]);
       } else {
-        // Select square
         const piece = chess.get(square as any);
         if (piece && piece.color === currentPlayer) {
           setSelectedSquare(square);
-          const moves = chess.moves({ square: square as any, verbose: true });
-          setPossibleMoves(moves.map((move: any) => move.to));
+          const moves = chess.moves({ square: square as any, verbose: true }) as ChessJsMove[];
+          setPossibleMoves(moves.map((m) => m.to));
+
+          if (variantMatchRef.current && variantEngineRef.current && activeVariant) {
+            const extras = generateMoves(variantMatchRef.current, algebraicToPos(square)) || [];
+            setAvailableSpecialMoves(extras);
+            if (extras.length > 0) {
+              toast.info(`${extras.length} coup(s) spécial(aux) disponible(s)`);
+            }
+          } else {
+            setAvailableSpecialMoves([]);
+          }
         } else {
           setSelectedSquare(null);
           setPossibleMoves([]);
+          setAvailableSpecialMoves([]);
         }
       }
     } catch (error) {
       console.error('Move error:', error);
       setSelectedSquare(null);
       setPossibleMoves([]);
+      setAvailableSpecialMoves([]);
     }
   };
 
   const makeAIMove = () => {
-    // Check using chess.turn() directly to avoid state race condition
     if (chess.turn() !== 'b' || chess.isGameOver()) {
       console.log('AI cannot move:', { turn: chess.turn(), gameOver: chess.isGameOver() });
       return;
     }
 
-    console.log('AI is thinking...');
     setIsThinking(true);
 
     if (aiMoveTimeoutRef.current) {
       clearTimeout(aiMoveTimeoutRef.current);
     }
 
-    // Simple AI: random move (in real app, integrate Stockfish)
     aiMoveTimeoutRef.current = setTimeout(() => {
-      const possibleMoves = chess.moves();
-      console.log('AI possible moves:', possibleMoves.length);
-      
-      if (possibleMoves.length === 0) {
-        console.log('No possible moves for AI');
+      const verboseMoves = chess.moves({ verbose: true }) as ChessJsMove[];
+
+      if (verboseMoves.length === 0) {
         setIsThinking(false);
         aiMoveTimeoutRef.current = null;
         return;
       }
 
-      const randomMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
-      console.log('AI selected move:', randomMove);
-      const move = chess.move(randomMove);
-      
-      if (move) {
-        console.log('AI move executed:', move);
-        setGamePosition(chess.fen());
-        setLastMove({ from: move.from, to: move.to });
-        const updatedHistory = [...moveHistoryRef.current, move];
-        setMoveHistory(updatedHistory);
-        moveHistoryRef.current = updatedHistory;
-        setCurrentPlayer(chess.turn());
-        setIsWhiteTurn(chess.turn() === 'w');
-        
-        // Check game status
-        if (chess.isCheckmate()) {
-          setGameStatus('checkmate');
-          toast.error("Échec et mat ! L'ordinateur gagne !");
-        } else if (chess.isDraw()) {
-          setGameStatus('draw');
-          toast.info("Partie nulle !");
-        }
+      const selected = verboseMoves[Math.floor(Math.random() * verboseMoves.length)];
 
-        if (isCoachEnabled) {
-          void provideCoachingFeedback(move, updatedHistory, true);
+      if (variantMatchRef.current && variantEngineRef.current) {
+        const move: VariantMove = {
+          from: algebraicToPos(selected.from),
+          to: algebraicToPos(selected.to),
+          promotion: selected.promotion ? promotionCharToPiece[selected.promotion] : undefined,
+        };
+        executeVariantMove(move);
+      } else {
+        const move = chess.move({ from: selected.from, to: selected.to, promotion: selected.promotion || 'q' });
+        if (move) {
+          setGamePosition(chess.fen());
+          setLastMove({ from: move.from, to: move.to });
+          recordStandardMove(move as ChessJsMove, 'black');
+          setCurrentPlayer(chess.turn());
+          setIsWhiteTurn(chess.turn() === 'w');
+          updateGameStatusAfterMove('black');
         }
       }
 
       setIsThinking(false);
       aiMoveTimeoutRef.current = null;
-    }, 800 + Math.random() * 1200); // Faster thinking time
+    }, 800 + Math.random() * 1200);
   };
 
   const handleResign = () => {
@@ -340,9 +496,35 @@ export default function ChessGame() {
       return;
     }
 
-    toast.success(`Attaque spéciale : ${activeVariant.title}`, {
-      description: activeVariant.description,
-    });
+    if (!selectedSquare) {
+      toast.info("Sélectionnez d'abord une pièce.");
+      return;
+    }
+
+    if (!variantMatchRef.current || !variantEngineRef.current) {
+      toast.error("La variante n'est pas prête.");
+      return;
+    }
+
+    if (availableSpecialMoves.length === 0) {
+      toast.info("Aucun coup spécial disponible pour cette pièce.");
+      return;
+    }
+
+    if (availableSpecialMoves.length === 1) {
+      executeVariantMove(availableSpecialMoves[0]);
+      return;
+    }
+
+    setPendingSpecialMoves(availableSpecialMoves);
+    setIsSpecialDialogOpen(true);
+  };
+
+  const handleSpecialDialogChange = (open: boolean) => {
+    setIsSpecialDialogOpen(open);
+    if (!open) {
+      setPendingSpecialMoves([]);
+    }
   };
 
   useEffect(() => {
@@ -496,7 +678,7 @@ export default function ChessGame() {
               isEnabled={isCoachEnabled}
             />
 
-            <MoveHistory moves={moveHistory} />
+            <MoveHistory moves={displayHistory} />
           </div>
 
           {/* 3D Chess Board */}
@@ -531,6 +713,35 @@ export default function ChessGame() {
           </div>
         </div>
       </div>
+      <Dialog open={isSpecialDialogOpen} onOpenChange={handleSpecialDialogChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Choisissez une attaque spéciale</DialogTitle>
+            <DialogDescription>
+              {activeVariant ? activeVariant.description : "Sélectionnez une option spéciale."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {pendingSpecialMoves.map((move, index) => (
+              <Button
+                key={`special-${index}`}
+                className="w-full justify-start"
+                onClick={() => {
+                  executeVariantMove(move);
+                  handleSpecialDialogChange(false);
+                }}
+              >
+                {describeSpecialMove(move)}
+              </Button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => handleSpecialDialogChange(false)}>
+              Annuler
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
