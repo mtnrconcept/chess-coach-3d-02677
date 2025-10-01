@@ -276,20 +276,33 @@ export function createChessJsEngineAdapter(chess: Chess): ChessJsEngineAdapter {
       chess.undo();
       return true;
     },
-    applyStandardMove(state, move) {
-      lastMoveResult = null;
-      if (needsSync) {
-        syncChessFromState(state as ExtendedGameState);
-      }
+    applyStandardMove(state, move, options) {
       const extended = state as ExtendedGameState;
+      const simulate = options?.simulate ?? false;
+
+      let chessInstance = chess;
+
+      if (simulate) {
+        const fen = stateToFen(extended);
+        chessInstance = new Chess(fen);
+      } else {
+        lastMoveResult = null;
+        if (needsSync) {
+          syncChessFromState(extended);
+        }
+      }
+
       const fromSquare = posToAlgebraic(move.from);
       const toSquare = posToAlgebraic(move.to);
       const promotion = move.promotion ? promotionMap[move.promotion] : undefined;
-      const result = chess.move({ from: fromSquare, to: toSquare, promotion, sloppy: true });
+      const result = chessInstance.move({ from: fromSquare, to: toSquare, promotion, sloppy: true });
       if (!result) {
         throw new Error("Illegal move attempted in adapter");
       }
-      lastMoveResult = result;
+
+      if (!simulate) {
+        lastMoveResult = result;
+      }
 
       const board = extended.board;
       const movingSquare = board[move.from.y][move.from.x];
@@ -356,7 +369,7 @@ export function createChessJsEngineAdapter(chess: Chess): ChessJsEngineAdapter {
         capturedPiece: capturedPiece ? { ...capturedPiece } : undefined,
       });
 
-      const [boardFen, turn, castling, enPassant, halfmove, fullmove] = chess
+      const [boardFen, turn, castling, enPassant, halfmove, fullmove] = chessInstance
         .fen()
         .split(" ") as [string, string, string, string, string, string];
       extended.turn = turn === "w" ? "white" : "black";
