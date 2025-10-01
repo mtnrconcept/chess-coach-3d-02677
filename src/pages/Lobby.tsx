@@ -380,7 +380,7 @@ export default function Lobby() {
                   <h2 className="text-2xl font-semibold text-chess-gold">Variantes du lobby</h2>
                 </div>
                 <Badge variant="outline" className="text-xs uppercase tracking-widest text-chess-gold">
-                  {variantLobbyRooms.length} salons
+                  {variantLobbyRooms?.length || 0} salons
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground">
@@ -391,13 +391,14 @@ export default function Lobby() {
               {selectedVariant && (
                 <div className="flex items-center gap-3 p-4 bg-chess-gold/10 border border-chess-gold/30 rounded-lg">
                   <Badge variant="default" className="bg-chess-gold text-background">
-                    {variantLobbyRooms.find(r => r.id === selectedVariant)?.title}
+                    {variantLobbyRooms?.find(r => r.id === selectedVariant)?.title}
                   </Badge>
                   <Button 
                     className="ml-auto hover-lift" 
                     variant="chess"
                     onClick={() => {
-                      const variant = variantLobbyRooms.find(r => r.id === selectedVariant);
+                      const variant = variantLobbyRooms?.find(r => r.id === selectedVariant);
+                      if (!variant) return;
                       navigate("/game", {
                         state: {
                           timeControl: {
@@ -420,26 +421,32 @@ export default function Lobby() {
               )}
 
               <ScrollArea className="max-h-[420px] pr-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  {variantLobbyRooms.map((room) => (
-                    <div
-                      key={room.id}
-                      onClick={() => setSelectedVariant(room.id)}
-                      className={`p-4 rounded-xl border transition-all cursor-pointer ${
-                        selectedVariant === room.id
-                          ? 'border-chess-gold bg-chess-gold/20 ring-2 ring-chess-gold/50'
-                          : 'border-border bg-background/60 hover:bg-background/80 hover:border-chess-gold/50'
-                      }`}
-                    >
-                      <h3 className={`text-lg font-semibold ${
-                        selectedVariant === room.id ? 'text-chess-gold' : 'text-chess-gold/80'
-                      }`}>
-                        {room.title}
-                      </h3>
-                      <p className="text-sm text-muted-foreground leading-relaxed">{room.description}</p>
-                    </div>
-                  ))}
-                </div>
+                {!variantLobbyRooms || variantLobbyRooms.length === 0 ? (
+                  <div className="p-10 text-center text-muted-foreground bg-background/40 rounded-lg border border-border">
+                    Chargement des variantes...
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {variantLobbyRooms.map((room) => (
+                      <div
+                        key={room.id}
+                        onClick={() => setSelectedVariant(room.id)}
+                        className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                          selectedVariant === room.id
+                            ? 'border-chess-gold bg-chess-gold/20 ring-2 ring-chess-gold/50'
+                            : 'border-border bg-background/60 hover:bg-background/80 hover:border-chess-gold/50'
+                        }`}
+                      >
+                        <h3 className={`text-lg font-semibold ${
+                          selectedVariant === room.id ? 'text-chess-gold' : 'text-chess-gold/80'
+                        }`}>
+                          {room.title}
+                        </h3>
+                        <p className="text-sm text-muted-foreground leading-relaxed">{room.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </ScrollArea>
             </Card>
           </div>
