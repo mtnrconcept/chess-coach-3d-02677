@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "@/services/supabase/client";
 import type { Tables } from "@/services/supabase/types";
 import { Button } from "@/components/ui/button";
@@ -99,6 +100,23 @@ export default function Lobby() {
   const [fallbackReason, setFallbackReason] = useState<string | null>(null);
   const [isVariantFallback, setIsVariantFallback] = useState(false);
   const [variantFallbackReason, setVariantFallbackReason] = useState<string | null>(null);
+  const [variantServiceStatus, setVariantServiceStatus] = useState<"ready" | "missing">("ready");
+
+  const isMissingVariantRelationError = useCallback((error: unknown): error is PostgrestError => {
+    if (!error || typeof error !== "object") {
+      return false;
+    }
+
+    const candidate = error as Partial<PostgrestError> & { status?: number };
+    const code = candidate.code ?? (typeof candidate.status === "number" ? String(candidate.status) : undefined);
+
+    if (code && ["PGRST100", "PGRST102", "PGRST114", "PGRST116", "42P01", "404"].includes(code)) {
+      return true;
+    }
+
+    const message = `${candidate.message ?? ""} ${candidate.details ?? ""}`.toLowerCase();
+    return message.includes("does not exist") || message.includes("not found") || message.includes("unknown table");
+  }, []);
 
   const selectedTimeConfig = useMemo(
     () => timeControls.find((control) => control.id === selectedTime) ?? timeControls[0],
@@ -118,9 +136,15 @@ export default function Lobby() {
         .order("created_at", { ascending: false });
 
       if (error) {
+        if (isMissingVariantRelationError(error)) {
+          setVariantServiceStatus("missing");
+          return [];
+        }
+
         throw error;
       }
 
+      setVariantServiceStatus("ready");
       return (data ?? []) as VariantRow[];
     },
   });
@@ -198,11 +222,13 @@ export default function Lobby() {
       } else {
         setIsVariantFallback(true);
         setVariantFallbackReason(
-          "Aucune variante n'a encore été enregistrée dans la base. La liste embarquée est utilisée."
+          variantServiceStatus === "missing"
+            ? "Le service distant des variantes n'est pas encore provisionné. Utilisation de la liste embarquée."
+            : "Aucune variante n'a encore été enregistrée dans la base. La liste embarquée est utilisée."
         );
       }
     }
-  }, [variantQuery.isError, variantQuery.isSuccess, variantQuery.error, remoteVariants]);
+  }, [variantQuery.isError, variantQuery.isSuccess, variantQuery.error, remoteVariants, variantServiceStatus]);
 
   useEffect(() => {
     if (variantRooms.length === 0) {
