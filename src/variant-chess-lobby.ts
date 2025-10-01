@@ -224,6 +224,7 @@ const RuleKnightTornado: RulePlugin = {
     // Donner un "bonus-turn" au même joueur pour la même pièce (tag)
     moved.tags = moved.tags || {};
     moved.tags.tornado = 1; // autorise un 2e saut tout de suite
+    state.turn = moved.color;
   },
   onTurnStart(state) {
     // Effet reset si ce n'est plus le tour du joueur précédent
@@ -1367,6 +1368,7 @@ export function playMove(match: Match, move: Move): { ok: boolean; reason?: stri
   if (!before.allow) return { ok: false, reason: before.reason || 'Coup refusé par la règle' };
 
   const prevState = engine.cloneState(state);
+  const prevTurn = prevState.turn;
 
   let nextState = state;
 
@@ -1384,14 +1386,18 @@ export function playMove(match: Match, move: Move): { ok: boolean; reason?: stri
   }
 
   // Déduire moved & captured pour onAfter (simple heuristique)
-  if (match.state.turn === prevState.turn) {
-    match.state.turn = prevState.turn === 'white' ? 'black' : 'white';
-  }
-
   const moved = engine.getPieceAt(match.state, move.to) || engine.getPieceAt(match.state, move.from);
   const captured = prevState ? engine.getPieceAt(prevState, move.to) : undefined;
 
+  const turnBeforeAfterHooks = match.state.turn;
+
   composite.onAfterMoveApply(match.state, { move, moved: moved!, captured, prevState }, engine);
+
+  const turnAfterAfterHooks = match.state.turn;
+  const pluginAdjustedTurn = turnAfterAfterHooks !== turnBeforeAfterHooks;
+  if (!pluginAdjustedTurn) {
+    match.state.turn = prevTurn === 'white' ? 'black' : 'white';
+  }
 
   // Début de tour suivant
   match.state.moveNumber = (prevState.moveNumber || 0) + 1;
