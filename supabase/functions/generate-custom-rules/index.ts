@@ -6,10 +6,57 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+type DifficultyLevel = 'beginner' | 'intermediate' | 'advanced';
+
 interface CustomRulesRequest {
   description: string;
-  difficulty?: 'beginner' | 'intermediate' | 'advanced';
+  difficulty?: DifficultyLevel;
 }
+
+const difficultyLabels: Record<DifficultyLevel, string> = {
+  beginner: 'débutant',
+  intermediate: 'intermédiaire',
+  advanced: 'avancé',
+};
+
+const focusPoints: Record<DifficultyLevel, string> = {
+  beginner: 'l’apprentissage des mouvements de base et des principes simples',
+  intermediate: 'la planification, la tactique et l’anticipation des échanges',
+  advanced: 'les stratégies complexes, la gestion du temps et la pression positionnelle',
+};
+
+const specialActions: Record<DifficultyLevel, string> = {
+  beginner: 'Une pièce alliée peut, une fois par partie, se repositionner sur une case libre adjacente à votre roi pour clarifier les mouvements essentiels.',
+  intermediate: 'Choisissez une pièce (hors roi) qui obtient un « mouvement de maîtrise » utilisable une fois par partie : elle peut soit répéter son déplacement habituel, soit rester en place pour bloquer une attaque.',
+  advanced: 'Désignez une pièce majeure qui reçoit une « impulsion stratégique » : une seule fois par partie, elle peut cumuler deux déplacements légaux successifs tant qu’elle ne donne pas échec direct.',
+};
+
+const endgameChallenges: Record<DifficultyLevel, string> = {
+  beginner: 'atteindre la promotion d’un pion ou mettre le roi adverse en échec et mat en moins de 30 coups pour encourager la progression',
+  intermediate: 'gagner en conservant au moins une pièce mineure en vie, ce qui pousse à équilibrer attaque et défense',
+  advanced: 'remporter la partie après avoir exécuté une combinaison tactique impliquant au moins trois pièces différentes',
+};
+
+const buildFallbackRules = (description: string, difficulty: DifficultyLevel) => {
+  const sanitizedDescription = description.trim() || 'Aucune description fournie';
+  const levelLabel = difficultyLabels[difficulty];
+
+  return [
+    'Mode hors ligne — génération assistée indisponible pour le moment.',
+    '',
+    `Voici un canevas ${levelLabel} basé sur votre idée :`,
+    `• Idée de départ : "${sanitizedDescription}"`,
+    `• Objectif pédagogique : ${focusPoints[difficulty]}.`,
+    '',
+    'Règles proposées :',
+    `1. Phase d’ouverture : chaque joueur dispose d’un « droit d’adaptation » une fois par partie pour déplacer une pièce différemment, tant que le déplacement reste logique avec votre thème.`,
+    `2. Action spéciale : ${specialActions[difficulty]}`,
+    `3. Zones d’influence : toute case contrôlée par deux pièces alliées devient un « bastion » qui annule les effets spéciaux adverses lorsqu’on y termine un déplacement.`,
+    `4. Condition de victoire alternative : ${endgameChallenges[difficulty]}.`,
+    '',
+    'Ajustez chaque point selon vos envies, ajoutez des limites de temps ou des récompenses supplémentaires et testez-les sur quelques parties rapides pour affiner l’équilibre.',
+  ].join('\n');
+};
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -18,11 +65,6 @@ serve(async (req) => {
   }
 
   try {
-    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!geminiApiKey) {
-      throw new Error('GEMINI_API_KEY is not set');
-    }
-
     let body: Partial<CustomRulesRequest> = {};
     try {
       body = await req.json();
@@ -45,6 +87,20 @@ serve(async (req) => {
         rules: 'Impossible de générer les règles pour le moment. Veuillez réessayer.'
       }), {
         status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
+
+    if (!geminiApiKey) {
+      const fallbackRules = buildFallbackRules(description, difficulty);
+      console.warn('GEMINI_API_KEY is not set. Returning fallback rules.');
+      return new Response(JSON.stringify({
+        rules: fallbackRules,
+        difficulty,
+        warning: "Mode démo : configurez la variable d'environnement GEMINI_API_KEY pour activer la génération IA."
+      }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
