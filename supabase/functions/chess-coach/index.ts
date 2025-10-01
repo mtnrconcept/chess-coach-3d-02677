@@ -19,13 +19,25 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const sendSuccess = (body: Record<string, unknown>) =>
+    new Response(JSON.stringify(body), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+
   try {
+    const { position, lastMove, gamePhase = 'opening', moveCount = 1 }: ChessCoachRequest = await req.json();
+
+    const baseResponse = {
+      coaching: 'Continuez à jouer, chaque coup est une leçon !',
+      gamePhase,
+      moveCount,
+    };
+
     const groqApiKey = Deno.env.get('GROQ_API_KEY');
     if (!groqApiKey) {
-      throw new Error('GROQ_API_KEY is not set');
+      console.warn('GROQ_API_KEY is not set – returning fallback coaching message');
+      return sendSuccess({ ...baseResponse, warning: 'missing_api_key' });
     }
-
-    const { position, lastMove, gamePhase = 'opening', moveCount = 1 }: ChessCoachRequest = await req.json();
 
     // Construct coaching prompt based on game context
     let systemPrompt = `Tu es un maître d'échecs professionnel et coach IA. Tu analyses les positions d'échecs et donnes des conseils en français.
@@ -75,16 +87,16 @@ Analyse brièvement la position et donne un conseil constructif.`;
       body: JSON.stringify({
         model: 'llama3-8b-8192',
         messages: [
-          { 
-            role: 'system', 
-            content: systemPrompt
+          {
+            role: 'system',
+            content: systemPrompt,
           },
-          { 
-            role: 'user', 
-            content: lastMove ? 
-              `Analyse le coup ${lastMove.san} dans cette position.` : 
-              `Analyse cette position d'échecs et donne un conseil.`
-          }
+          {
+            role: 'user',
+            content: lastMove
+              ? `Analyse le coup ${lastMove.san} dans cette position.`
+              : `Analyse cette position d'échecs et donne un conseil.`,
+          },
         ],
         max_tokens: 150,
         temperature: 0.7,
@@ -94,31 +106,30 @@ Analyse brièvement la position et donne un conseil constructif.`;
     if (!response.ok) {
       const errorData = await response.text();
       console.error('Groq API error:', errorData);
-      throw new Error(`Groq API error: ${response.status}`);
+      return sendSuccess({ ...baseResponse, warning: `groq_error_${response.status}` });
     }
 
     const data = await response.json();
-    const coaching = data.choices[0].message.content.trim();
+    const coaching = data.choices?.[0]?.message?.content?.trim();
+
+    if (!coaching) {
+      console.warn('Groq API returned no coaching content – using fallback message');
+      return sendSuccess({ ...baseResponse, warning: 'empty_response' });
+    }
 
     console.log('Generated coaching:', coaching);
 
-    return new Response(JSON.stringify({ 
+    return sendSuccess({
       coaching,
       gamePhase,
-      moveCount 
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      moveCount,
     });
-
   } catch (error) {
     console.error('Error in chess-coach function:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return new Response(JSON.stringify({ 
+    return sendSuccess({
+      coaching: 'Continuez à jouer, chaque coup est une leçon !',
       error: errorMessage,
-      coaching: 'Continuez à jouer, chaque coup est une leçon !' 
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });

@@ -33,7 +33,7 @@ const START_SQUARES: Record<'w' | 'b', Record<string, string[]>> = {
   },
 };
 
-function isKingInCheck(chess: Chess): boolean {
+export function isKingInCheck(chess: Chess): boolean {
   const modern = chess as Chess & { inCheck?: () => boolean };
   if (typeof modern.inCheck === "function") {
     return modern.inCheck();
