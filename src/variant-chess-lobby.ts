@@ -1357,27 +1357,33 @@ export function playMove(match: Match, move: Move): { ok: boolean; reason?: stri
 
   const prevState = engine.cloneState(state);
 
+  let nextState = state;
+
   if (before.transform) {
-    before.transform(state);
+    before.transform(nextState);
+    match.state = nextState;
   } else {
     // Sinon, on applique un coup standard (ton moteur valide la légalité/échec)
     if (!engine.isLegalStandardMove(state, move)) {
       return { ok: false, reason: 'Coup illégal (règles de base)' };
     }
-    const newS = engine.applyStandardMove(state, move);
+    nextState = engine.applyStandardMove(state, move);
     // Remplace l’état (selon ton implémentation)
-    match.state = newS;
+    match.state = nextState;
   }
 
   // Déduire moved & captured pour onAfter (simple heuristique)
+  if (match.state.turn === prevState.turn) {
+    match.state.turn = prevState.turn === 'white' ? 'black' : 'white';
+  }
+
   const moved = engine.getPieceAt(match.state, move.to) || engine.getPieceAt(match.state, move.from);
   const captured = prevState ? engine.getPieceAt(prevState, move.to) : undefined;
 
   composite.onAfterMoveApply(match.state, { move, moved: moved!, captured, prevState }, engine);
 
   // Début de tour suivant
-  match.state.turn = match.state.turn === 'white' ? 'black' : 'white';
-  match.state.moveNumber = (match.state.moveNumber || 0) + 1;
+  match.state.moveNumber = (prevState.moveNumber || 0) + 1;
   composite.onTurnStart(match.state, engine);
 
   return { ok: true };
