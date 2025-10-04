@@ -1,5 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { compileRuleSpec, RuleCompilationError } from "../_shared/rulesets/compiler.ts";
+import type { CompiledRuleset, RuleSpec } from "../_shared/rulesets/types.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -22,6 +24,10 @@ interface CustomRulesResponse {
   pluginCode: string;
   warning?: string;
   pluginWarning?: string;
+  compiledRuleset: CompiledRuleset;
+  compiledHash: string;
+  ruleSpec: RuleSpec;
+  compilerWarnings?: string[];
 }
 
 const difficultyLabels: Record<DifficultyLevel, string> = {
@@ -48,25 +54,35 @@ const endgameChallenges: Record<DifficultyLevel, string> = {
   advanced: 'remporter la partie après avoir exécuté une combinaison tactique impliquant au moins trois pièces différentes',
 };
 
-const buildFallbackRules = (description: string, difficulty: DifficultyLevel) => {
-  const sanitizedDescription = description.trim() || 'Aucune description fournie';
+const buildFallbackRuleSpec = (
+  description: string,
+  difficulty: DifficultyLevel,
+  ruleName: string,
+): RuleSpec => {
+  const sanitizedDescription = description.trim() || "Aucune description fournie";
   const levelLabel = difficultyLabels[difficulty];
+  const overview = `Mode hors ligne — génération assistée indisponible pour le moment. Variante ${levelLabel}. Thème : ${sanitizedDescription}. Focus : ${focusPoints[difficulty]}. Action spéciale suggérée : ${specialActions[difficulty]}. Défi final : ${endgameChallenges[difficulty]}.`;
 
-  return [
-    'Mode hors ligne — génération assistée indisponible pour le moment.',
-    '',
-    `Voici un canevas ${levelLabel} basé sur votre idée :`,
-    `• Idée de départ : "${sanitizedDescription}"`,
-    `• Objectif pédagogique : ${focusPoints[difficulty]}.`,
-    '',
-    'Règles proposées :',
-    `1. Phase d’ouverture : chaque joueur dispose d’un « droit d’adaptation » une fois par partie pour déplacer une pièce différemment, tant que le déplacement reste logique avec votre thème.`,
-    `2. Action spéciale : ${specialActions[difficulty]}`,
-    `3. Zones d’influence : toute case contrôlée par deux pièces alliées devient un « bastion » qui annule les effets spéciaux adverses lorsqu’on y termine un déplacement.`,
-    `4. Condition de victoire alternative : ${endgameChallenges[difficulty]}.`,
-    '',
-    'Ajustez chaque point selon vos envies, ajoutez des limites de temps ou des récompenses supplémentaires et testez-les sur quelques parties rapides pour affiner l’équilibre.',
-  ].join('\n');
+  return {
+    meta: {
+      name: ruleName,
+      base: "chess-base@1.0.0",
+      version: "1.0.0",
+      description: overview,
+      priority: 50,
+    },
+    patches: [],
+    tests: [
+      {
+        name: "Fallback smoke test",
+        fen: "startpos",
+        script: [
+          { move: "e2-e4", by: "pawn" },
+          { move: "b8-c6", by: "knight" },
+        ],
+      },
+    ],
+  };
 };
 
 const slugify = (value: string) =>
@@ -77,23 +93,6 @@ const slugify = (value: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 48);
-
-const buildFallbackPlugin = (
-  ruleId: string,
-  ruleName: string,
-  rules: string,
-  difficulty: DifficultyLevel,
-): string => `const rule = {
-  id: '${ruleId}',
-  name: '${ruleName.replace(/'/g, "\\'")}',
-  description: 'Variante générée automatiquement (mode démo ${difficulty}).',
-  onAfterMoveApply(state, ctx, api) {
-    console.log('[demo-rule]', '${ruleId}', 'aucun effet automatique – appliquez les règles manuellement.');
-  },
-};
-
-module.exports = rule;
-`;
 
 const buildRuleNameSuggestion = (description: string, difficulty: DifficultyLevel) => {
   const base = description.trim().split(/\n+/)[0]?.trim() ?? '';
@@ -106,6 +105,53 @@ const buildRuleNameSuggestion = (description: string, difficulty: DifficultyLeve
   }
 
   return `${base.slice(0, 57)}…`;
+};
+
+const parseJsonLike = (value: string): unknown => {
+  const trimmed = value.trim();
+  const codeBlockMatch = trimmed.match(/```(?:json)?\n([\s\S]*?)```/i);
+  const jsonText = codeBlockMatch ? codeBlockMatch[1] : trimmed;
+  return JSON.parse(jsonText);
+};
+
+const normalizeRuleSpec = (raw: unknown, fallbackName: string): RuleSpec | null => {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const base = raw as Record<string, unknown>;
+  const metaRaw = base.meta;
+  if (!metaRaw || typeof metaRaw !== "object") {
+    return null;
+  }
+
+  const metaObj = metaRaw as Record<string, unknown>;
+  const name = typeof metaObj.name === "string" && metaObj.name.trim().length > 0
+    ? metaObj.name.trim()
+    : fallbackName;
+  const baseId = typeof metaObj.base === "string" && metaObj.base.trim().length > 0
+    ? metaObj.base.trim()
+    : "chess-base@1.0.0";
+  const version = typeof metaObj.version === "string" && metaObj.version.trim().length > 0
+    ? metaObj.version.trim()
+    : "1.0.0";
+  const description = typeof metaObj.description === "string" ? metaObj.description : undefined;
+  const priority = typeof metaObj.priority === "number" ? metaObj.priority : 50;
+
+  const patches = Array.isArray(base.patches) ? (base.patches as RuleSpec["patches"]) : undefined;
+  const tests = Array.isArray(base.tests) ? (base.tests as RuleSpec["tests"]) : undefined;
+
+  return {
+    meta: {
+      name,
+      base: baseId,
+      version,
+      description,
+      priority,
+    },
+    patches: patches ?? [],
+    tests,
+  };
 };
 
 serve(async (req) => {
@@ -153,212 +199,130 @@ serve(async (req) => {
     const uniqueSuffix = crypto.randomUUID().slice(0, 8);
     const ruleId = ruleBaseSlug ? `${ruleBaseSlug}-${uniqueSuffix}` : `variant-${uniqueSuffix}`;
 
-    const systemPrompt = `Tu es un expert en échecs et en conception de règles de jeu. Tu crées des règles d'échecs personnalisées qui sont:
-- Équilibrées et justes pour les deux joueurs
-- Claires et faciles à comprendre
-- Intéressantes et innovantes
-- Adaptées au niveau: ${difficulty}
-
-INSTRUCTIONS:
-- Réponds en français
-- Fournis des règles précises et détaillées
-- Explique comment ces règles modifient le jeu standard
-- Donne des exemples concrets si nécessaire
-- Assure-toi que les règles sont jouables et logiques`;
-
-    const fallbackRules = buildFallbackRules(description, difficulty);
-
-    let customRules = fallbackRules;
-    let pluginCode = buildFallbackPlugin(ruleId, suggestedRuleName, fallbackRules, difficulty);
+    let ruleSpec = buildFallbackRuleSpec(description, difficulty, suggestedRuleName);
     let warning: string | undefined;
-    let pluginWarning: string | undefined;
+    const pluginWarning = 'Les plugins JavaScript sont dépréciés. Utilisez le CompiledRuleset JSON.';
+    let compilerWarnings: string[] = [];
 
     if (!geminiApiKey) {
       warning = "Mode démo : configurez la variable d'environnement GEMINI_API_KEY pour activer la génération IA.";
-      console.warn('No Gemini API key found. Returning fallback rules & plugin.');
+      console.warn('No Gemini API key found. Returning fallback RuleSpec.');
     } else {
+      const specPrompt = `Tu es un compilateur de variantes d'échecs. Retourne UNIQUEMENT un JSON valide (sans texte autour) qui respecte ce schéma minimal :
+{
+  "meta": {
+    "name": string,
+    "base": string,
+    "version": string,
+    "description"?: string,
+    "priority"?: number
+  },
+  "patches"?: Array<{ "op": "extend"|"replace"|"remove", "path": string, "value"?: unknown, "priority"?: number }>,
+  "tests"?: Array<{ "name": string, "fen": string, "script": Array<Record<string, unknown>> }>
+}
+Contraintes :
+- Base autorisée par défaut : "chess-base@1.0.0".
+- Décris uniquement les modifications nécessaires par rapport à la base.
+- Chaque patch doit cibler une clé précise (ex: "pieces[id=knight].moves").
+- Les tests doivent être courts (2-5 étapes) et vérifier l'effet clé.
+- Pas de code, pas de texte hors JSON.
+Description utilisateur : ${description}
+Nom suggéré : ${suggestedRuleName}
+Niveau : ${difficultyLabels[difficulty]}.`;
+
       const payload = {
-        systemInstruction: {
-          role: 'system',
-          parts: [{ text: systemPrompt }]
-        },
         contents: [
           {
             role: 'user',
             parts: [
-              {
-                text: `Crée des règles d'échecs personnalisées basées sur cette description: ${description}`
-              }
+              { text: specPrompt }
             ]
           }
         ],
         generationConfig: {
-          maxOutputTokens: 800
-        }
+          maxOutputTokens: 800,
+        },
       };
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        console.error('Gemini API error:', errorData);
-        warning = `Erreur lors de la génération IA (${response.status}). Utilisation du mode hors-ligne.`;
-      } else {
-        const data = await response.json();
-        const generatedRules = data.candidates?.[0]?.content?.parts
-          ?.map((part: { text?: string }) => part.text ?? '')
-          .join('\n')
-          .trim();
-
-        if (generatedRules) {
-          customRules = generatedRules;
-        } else {
-          warning = 'La génération IA n’a pas renvoyé de règles exploitables. Utilisation du mode hors-ligne.';
-        }
-      }
-
-      // Try to generate automation code if the API key is available
       try {
-        const pluginPrompt = `Tu génères du code JavaScript (CommonJS) qui exporte un objet respectant l'interface suivante :
-interface RulePlugin {
-  id: string;
-  name: string;
-  description: string;
-  onGenerateExtraMoves?(state, pos, piece, api): Move[];
-  onBeforeMoveApply?(state, move, api): { allow: boolean; transform?: (s) => void; reason?: string };
-  onAfterMoveApply?(state, ctx, api): void;
-  onTurnStart?(state, api): void;
-}
-
-Le moteur fourni ressemble à chess.js. Tu peux utiliser un helper "helpers" passé en paramètre qui expose :
-- helpers.clone(value) : clone profond
-- helpers.eqPos(a, b)
-- helpers.dirs : { rook: Pos[], bishop: Pos[] }
-- helpers.neighbors(pos) : renvoie les 8 cases autour
-- helpers.createMove(from, to, meta?) : construit un Move
-- helpers.ruleId : identifiant imposé (${ruleId})
-
-Rédige du code modulaire, sans dépendances externes, en respectant strictement CommonJS (module.exports = rule). Le code doit automatiser la variante décrite ci-dessous en respectant les règles classiques des échecs. N'invente pas de nouvelles pièces.
-VARIANTE: ${suggestedRuleName}
-DIFFICULTÉ: ${difficultyLabels[difficulty]}
-DESCRIPTION UTILISATEUR: ${description}
-RÈGLES DÉTAILLÉES:\n${customRules}`;
-
-        const pluginResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            systemInstruction: {
-              role: 'system',
-              parts: [{ text: 'Tu es un expert en développement TypeScript et en variantes d\'échecs.' }]
-            },
-            contents: [
-              {
-                role: 'user',
-                parts: [{ text: pluginPrompt }]
-              }
-            ],
-            generationConfig: {
-              maxOutputTokens: 1200
-            }
-          }),
+          body: JSON.stringify(payload),
         });
 
-        if (pluginResponse.ok) {
-          const pluginData = await pluginResponse.json();
-          const rawCode = pluginData.candidates?.[0]?.content?.parts
+        if (!response.ok) {
+          const errorData = await response.text();
+          console.error('Gemini API error:', errorData);
+          warning = `Erreur lors de la génération IA (${response.status}). Utilisation du mode hors-ligne.`;
+        } else {
+          const data = await response.json();
+          const generatedSpecRaw = data.candidates?.[0]?.content?.parts
             ?.map((part: { text?: string }) => part.text ?? '')
             .join('\n')
             .trim();
 
-          if (rawCode) {
-            const sanitizeGeneratedCode = (value: string) => {
-              const codeBlockMatch = value.match(/```(?:[a-zA-Z]+)?\n([\s\S]*?)```/);
-              const trimmed = codeBlockMatch ? codeBlockMatch[1] : value;
-              return trimmed
-                .replace(/^export\s+default\s+/m, 'module.exports = ')
-                .trim();
-            };
-
-            let sanitizedCode = sanitizeGeneratedCode(rawCode);
-
-            if (!/module\.exports\s*=/.test(sanitizedCode)) {
-              // Some generations return an object literal directly. Wrap it into a rule variable.
-              const directObjectExport = sanitizedCode.match(/^{[\s\S]*}$/);
-              if (directObjectExport) {
-                sanitizedCode = `const rule = ${sanitizedCode}\n\nmodule.exports = rule;`;
+          if (generatedSpecRaw) {
+            try {
+              const parsed = parseJsonLike(generatedSpecRaw);
+              const normalised = normalizeRuleSpec(parsed, suggestedRuleName);
+              if (normalised) {
+                ruleSpec = normalised;
               } else {
-                pluginWarning =
-                  'Le code généré ne respecte pas le format attendu. Utilisation d’un squelette de règle.';
+                warning = 'La génération IA a produit un format inattendu. Utilisation du mode hors-ligne.';
               }
-            }
-
-            if (!pluginWarning) {
-              const ensureRuleId = (source: string) => {
-                if (source.includes(ruleId) || source.includes('helpers.ruleId')) {
-                  return source;
-                }
-
-                const idPropertyRegex = /(id\s*:\s*)(['"])(.*?)\2/;
-                if (idPropertyRegex.test(source)) {
-                  return source.replace(idPropertyRegex, `$1'${ruleId}'`);
-                }
-
-                if (/const\s+rule\s*=\s*{/.test(source)) {
-                  return source.replace(
-                    /const\s+rule\s*=\s*{/,
-                    `const rule = {\n  id: '${ruleId}',`
-                  );
-                }
-
-                if (/module\.exports\s*=\s*{/.test(source)) {
-                  return source.replace(
-                    /module\.exports\s*=\s*{/,
-                    `const rule = {\n  id: '${ruleId}',`
-                  ).concat('\n\nmodule.exports = rule;');
-                }
-
-                return `const rule = ${source.startsWith('module.exports') ? source.replace(/module\.exports\s*=\s*/, '') : source}\n\nrule.id = '${ruleId}';\nmodule.exports = rule;`;
-              };
-
-              sanitizedCode = ensureRuleId(sanitizedCode);
-
-              if (!/module\.exports\s*=/.test(sanitizedCode)) {
-                sanitizedCode += `\n\nmodule.exports = rule;`;
-              }
-
-              pluginCode = sanitizedCode.trim();
+            } catch (specError) {
+              console.error('Failed to parse generated spec:', specError);
+              warning = 'Impossible de parser le JSON généré. Utilisation du mode hors-ligne.';
             }
           } else {
-            pluginWarning = 'La génération du code automatique a échoué. Utilisation d’un squelette de règle.';
+            warning = 'La génération IA n’a pas renvoyé de règles exploitables. Utilisation du mode hors-ligne.';
           }
-        } else {
-          const pluginError = await pluginResponse.text();
-          console.error('Gemini plugin generation error:', pluginError);
-          pluginWarning = 'Le code de la variante n’a pas pu être généré automatiquement.';
         }
-      } catch (pluginError) {
-        console.error('Failed to generate plugin code:', pluginError);
-        pluginWarning = 'La génération du code automatique a rencontré une erreur.';
+      } catch (error) {
+        console.error('Gemini spec generation error:', error);
+        warning = 'Erreur de communication avec le modèle IA. Utilisation du mode hors-ligne.';
       }
     }
 
+    let compiledRuleset: CompiledRuleset;
+    let compiledHash: string;
+
+    try {
+      const compilation = await compileRuleSpec(ruleSpec);
+      compiledRuleset = compilation.compiled;
+      compiledHash = compilation.hash;
+      compilerWarnings = compilation.warnings;
+    } catch (error) {
+      if (error instanceof RuleCompilationError) {
+        console.error('Rule compilation error:', error.message);
+        warning = `Compilation invalide (${error.message}). Retour au canevas standard.`;
+        const fallbackSpec = buildFallbackRuleSpec(description, difficulty, suggestedRuleName);
+        const fallbackCompilation = await compileRuleSpec(fallbackSpec);
+        compiledRuleset = fallbackCompilation.compiled;
+        compiledHash = fallbackCompilation.hash;
+        compilerWarnings = fallbackCompilation.warnings;
+        ruleSpec = fallbackSpec;
+      } else {
+        throw error;
+      }
+    }
+
+    const prettySpec = JSON.stringify(ruleSpec, null, 2);
     const responsePayload: CustomRulesResponse = {
-      rules: customRules,
+      rules: prettySpec,
       difficulty,
       ruleId,
-      ruleName: suggestedRuleName,
-      pluginCode,
+      ruleName: ruleSpec.meta.name ?? suggestedRuleName,
+      pluginCode: '',
       warning,
       pluginWarning,
+      compiledRuleset,
+      compiledHash,
+      ruleSpec,
+      compilerWarnings: compilerWarnings.length > 0 ? compilerWarnings : undefined,
     };
 
     return new Response(JSON.stringify(responsePayload), {

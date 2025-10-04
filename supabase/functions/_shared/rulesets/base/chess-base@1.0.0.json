@@ -1,0 +1,105 @@
+{
+  "meta": {
+    "name": "Standard Chess",
+    "base": "chess-base@1.0.0",
+    "version": "1.0.0",
+    "description": "Règles FIDE classiques d'échecs sur échiquier 8x8.",
+    "priority": 0
+  },
+  "board": {
+    "size": "8x8",
+    "zones": []
+  },
+  "pieces": [
+    {
+      "id": "king",
+      "from": "king",
+      "side": "both",
+      "moves": [{ "pattern": "king" }],
+      "spawn": { "count": 1, "startSquares": ["e1", "e8"] }
+    },
+    {
+      "id": "queen",
+      "from": "queen",
+      "side": "both",
+      "moves": [{ "pattern": "queen" }],
+      "spawn": { "count": 1, "startSquares": ["d1", "d8"] }
+    },
+    {
+      "id": "rook",
+      "from": "rook",
+      "side": "both",
+      "moves": [{ "pattern": "rook" }],
+      "spawn": { "count": 2, "startSquares": ["a1", "h1", "a8", "h8"] }
+    },
+    {
+      "id": "bishop",
+      "from": "bishop",
+      "side": "both",
+      "moves": [{ "pattern": "bishop" }],
+      "spawn": { "count": 2, "startSquares": ["c1", "f1", "c8", "f8"] }
+    },
+    {
+      "id": "knight",
+      "from": "knight",
+      "side": "both",
+      "moves": [{ "pattern": "knight" }],
+      "spawn": { "count": 2, "startSquares": ["b1", "g1", "b8", "g8"] }
+    },
+    {
+      "id": "pawn",
+      "from": "pawn",
+      "side": "both",
+      "moves": [{ "pattern": "pawn" }],
+      "spawn": {
+        "count": 8,
+        "startSquares": [
+          "a2",
+          "b2",
+          "c2",
+          "d2",
+          "e2",
+          "f2",
+          "g2",
+          "h2",
+          "a7",
+          "b7",
+          "c7",
+          "d7",
+          "e7",
+          "f7",
+          "g7",
+          "h7"
+        ]
+      }
+    }
+  ],
+  "effects": [],
+  "rules": {
+    "turnOrder": "whiteThenBlack",
+    "checkRules": "classic",
+    "promotion": [
+      { "piece": "pawn", "to": ["queen", "rook", "bishop", "knight"] }
+    ],
+    "winConditions": [
+      { "type": "checkmate" },
+      { "type": "timeout" },
+      { "type": "stalemate", "params": { "result": "draw" } }
+    ],
+    "conflictPolicy": {
+      "onDuplicatePieceId": "error",
+      "onMoveOverride": "replace",
+      "onEffectCollision": "priorityHighWins"
+    }
+  },
+  "tests": [
+    {
+      "name": "Pawn opening",
+      "fen": "startpos",
+      "script": [
+        { "move": "e2-e4", "by": "pawn" },
+        { "assert": "turn", "value": "black" }
+      ]
+    }
+  ]
+}

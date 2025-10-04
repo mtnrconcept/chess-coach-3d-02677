@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import type { PostgrestError } from "@supabase/supabase-js";
 import type { TablesInsert, TablesUpdate } from "@/services/supabase/types";
-import { registerExternalRuleFromSource } from "@/variant-chess-lobby";
+import type { CompiledRuleset, RuleSpec } from "@/lib/rulesets/types";
 
 type DifficultyLevel = "beginner" | "intermediate" | "advanced";
 
@@ -29,6 +29,10 @@ type GenerationResponse = {
   ruleId?: string;
   ruleName?: string;
   pluginCode?: string;
+  compiledRuleset?: CompiledRuleset;
+  compiledHash?: string;
+  ruleSpec?: RuleSpec;
+  compilerWarnings?: string[];
 };
 
 const difficultyLevels: Array<{ value: DifficultyLevel; label: string }> = [
@@ -66,7 +70,13 @@ const buildDefaultVariantName = (promptValue: string, level: DifficultyLevel) =>
   return sanitized.length > 60 ? `${sanitized.slice(0, 57)}…` : sanitized;
 };
 
-const buildSummary = (promptValue: string, rulesValue: string) => {
+const buildSummary = (promptValue: string, rulesValue: string, spec?: RuleSpec | null) => {
+  if (spec?.meta.description) {
+    return spec.meta.description.length > 240
+      ? `${spec.meta.description.slice(0, 237)}…`
+      : spec.meta.description;
+  }
+
   const trimmedPrompt = promptValue.trim();
   if (trimmedPrompt.length > 0) {
     return trimmedPrompt.length > 240 ? `${trimmedPrompt.slice(0, 237)}…` : trimmedPrompt;
@@ -97,8 +107,10 @@ export function CustomRulesGenerator() {
   const [lastSavedVariantId, setLastSavedVariantId] = useState<string | null>(null);
   const [generatedRuleId, setGeneratedRuleId] = useState<string | null>(null);
   const [generatedRuleName, setGeneratedRuleName] = useState<string | null>(null);
-  const [generatedPluginSource, setGeneratedPluginSource] = useState<string | null>(null);
-  const [isAutomationReady, setIsAutomationReady] = useState(false);
+  const [compiledRuleset, setCompiledRuleset] = useState<CompiledRuleset | null>(null);
+  const [compiledHash, setCompiledHash] = useState<string | null>(null);
+  const [ruleSpec, setRuleSpec] = useState<RuleSpec | null>(null);
+  const [compilerWarnings, setCompilerWarnings] = useState<string[]>([]);
 
   const hasGeneratedContent = generatedRules.trim().length > 0;
 
@@ -118,18 +130,22 @@ export function CustomRulesGenerator() {
 
     try {
       const promptText = description.trim();
-      const summary = buildSummary(promptText, generatedRules);
+      const summary = buildSummary(promptText, generatedRules, ruleSpec);
       const metadataPayload: Record<string, unknown> = {
         slug: slugify(variantName),
       };
 
-      if (generatedPluginSource && generatedRuleId) {
-        metadataPayload.plugin = {
-          source: generatedPluginSource,
-          createdAt: new Date().toISOString(),
-          ruleId: generatedRuleId,
-          warning: pluginWarning,
+      if (compiledHash && compiledRuleset) {
+        metadataPayload.compiled = {
+          hash: compiledHash,
+          generatedAt: new Date().toISOString(),
+          warnings: compilerWarnings,
+          ruleset: compiledRuleset,
         };
+      }
+
+      if (ruleSpec) {
+        metadataPayload.ruleSpec = ruleSpec;
       }
 
       const payload: TablesInsert<'chess_variants'> = {
@@ -212,19 +228,6 @@ export function CustomRulesGenerator() {
         }
       }
 
-      if (generatedRuleId && generatedPluginSource) {
-        const registration = registerExternalRuleFromSource(generatedRuleId, generatedPluginSource);
-        if (!registration.ok) {
-          toast.warning(
-            registration.error
-              ? `Variante enregistrée, mais le code n'a pas pu être activé : ${registration.error}`
-              : "Variante enregistrée, mais le code n'a pas pu être activé."
-          );
-        } else {
-          setIsAutomationReady(true);
-        }
-      }
-
       setLastSavedVariantId(insertedVariantId ?? null);
       toast.success(
         isUpdate ? "Votre variante a été mise à jour dans le lobby !" : "Votre variante a été ajoutée au lobby !"
@@ -249,10 +252,12 @@ export function CustomRulesGenerator() {
     setIsGenerating(true);
     setWarningMessage(null);
     setPluginWarning(null);
-    setGeneratedPluginSource(null);
     setGeneratedRuleId(null);
     setGeneratedRuleName(null);
-    setIsAutomationReady(false);
+    setCompiledRuleset(null);
+    setCompiledHash(null);
+    setRuleSpec(null);
+    setCompilerWarnings([]);
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-custom-rules', {
@@ -273,6 +278,17 @@ export function CustomRulesGenerator() {
       const typed = (data ?? {}) as GenerationResponse;
       const rules = typeof typed.rules === 'string' ? typed.rules : "";
       setGeneratedRules(rules);
+
+      const spec = typed.ruleSpec ?? null;
+      setRuleSpec(spec ?? null);
+      setCompiledRuleset(typed.compiledRuleset ?? null);
+      setCompiledHash(typeof typed.compiledHash === 'string' ? typed.compiledHash : null);
+      const warnings = Array.isArray(typed.compilerWarnings) ? typed.compilerWarnings : [];
+      setCompilerWarnings(warnings);
+
+      if (warnings.length > 0) {
+        toast.warning(`Compilation effectuée avec ${warnings.length} avertissement${warnings.length > 1 ? 's' : ''}.`);
+      }
 
       const suggestedName =
         typeof typed.ruleName === 'string' && typed.ruleName.trim().length > 0
@@ -295,22 +311,6 @@ export function CustomRulesGenerator() {
         setPluginWarning(typed.pluginWarning);
         toast.warning(typed.pluginWarning);
       }
-
-      if (typed.pluginCode && typed.ruleId) {
-        setGeneratedPluginSource(typed.pluginCode);
-        const registration = registerExternalRuleFromSource(typed.ruleId, typed.pluginCode);
-        if (registration.ok) {
-          setIsAutomationReady(true);
-        } else {
-          const errorMessage = registration.error
-            ? `Code de variante généré mais non activé (${registration.error}).`
-            : "Code de variante généré mais non activé.";
-          setPluginWarning((previous) => previous ?? errorMessage);
-          toast.warning(errorMessage);
-        }
-      } else {
-        setGeneratedPluginSource(null);
-      }
     } catch (error) {
       console.error('Error generating custom rules:', error);
       const message = error instanceof Error ? error.message : "Erreur lors de la génération des règles";
@@ -321,21 +321,20 @@ export function CustomRulesGenerator() {
     }
   };
 
-  const automationStatus = useMemo(() => {
-    if (!generatedRuleId) {
-      return { label: "Automatisation indisponible", tone: "muted" as const };
+  const compilationStatus = useMemo(() => {
+    if (!compiledHash) {
+      return { label: "Compilation en attente", tone: "muted" as const };
     }
 
-    if (isAutomationReady) {
-      return { label: "Code actif", tone: "success" as const };
+    if (compilerWarnings.length > 0) {
+      return {
+        label: `Hash ${compiledHash.slice(0, 8)}… (avertissements)`,
+        tone: "warning" as const,
+      };
     }
 
-    if (generatedPluginSource) {
-      return { label: "Code généré à valider", tone: "warning" as const };
-    }
-
-    return { label: "Automatisation en attente", tone: "muted" as const };
-  }, [generatedRuleId, generatedPluginSource, isAutomationReady]);
+    return { label: `Hash ${compiledHash.slice(0, 8)}…`, tone: "success" as const };
+  }, [compiledHash, compilerWarnings]);
 
   return (
     <Card className="p-6 gradient-card border-chess">
@@ -418,19 +417,19 @@ export function CustomRulesGenerator() {
                   )}
                   <span
                     className={`inline-flex items-center gap-1 ${
-                      automationStatus.tone === 'success'
+                      compilationStatus.tone === 'success'
                         ? 'text-emerald-600 dark:text-emerald-400'
-                        : automationStatus.tone === 'warning'
+                        : compilationStatus.tone === 'warning'
                           ? 'text-amber-600 dark:text-amber-400'
                           : 'text-muted-foreground'
                     }`}
                   >
-                    {automationStatus.tone === 'success' ? (
+                    {compilationStatus.tone === 'success' ? (
                       <CheckCircle2 className="h-3 w-3" />
                     ) : (
                       <Code className="h-3 w-3" />
                     )}
-                    {automationStatus.label}
+                    {compilationStatus.label}
                   </span>
                 </div>
               </div>
@@ -450,13 +449,21 @@ export function CustomRulesGenerator() {
                   {generatedRuleName && (
                     <div className="text-xs">Nom suggéré&nbsp;: {generatedRuleName}</div>
                   )}
+                  {compiledHash && (
+                    <div className="text-xs font-mono">Hash&nbsp;: {compiledHash.slice(0, 16)}…</div>
+                  )}
+                  {ruleSpec?.meta.base && (
+                    <div className="text-xs">Base&nbsp;: {ruleSpec.meta.base}</div>
+                  )}
+                  {compilerWarnings.length > 0 && (
+                    <ul className="text-xs text-amber-600 dark:text-amber-400 space-y-0.5">
+                      {compilerWarnings.map((warning, index) => (
+                        <li key={index}>⚠️ {warning}</li>
+                      ))}
+                    </ul>
+                  )}
                   {pluginWarning && (
                     <div className="text-xs text-amber-600 dark:text-amber-400">{pluginWarning}</div>
-                  )}
-                  {!isAutomationReady && generatedPluginSource && !pluginWarning && (
-                    <div className="text-xs text-muted-foreground">
-                      Le code a été généré. Vérifiez qu'il fonctionne avant d'enregistrer.
-                    </div>
                   )}
                 </div>
               )}
@@ -464,15 +471,13 @@ export function CustomRulesGenerator() {
 
             <div className="space-y-3 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-4">
               <div className="flex items-center gap-2">
-                <Badge variant="outline" className="text-primary">Automatisation</Badge>
-                {isAutomationReady ? (
-                  <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                    Code prêt pour le lobby
+                <Badge variant="outline" className="text-primary">Ruleset compilé</Badge>
+                {compiledHash ? (
+                  <span className={`text-xs ${compilerWarnings.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {compilerWarnings.length > 0 ? 'Compilation avec avertissements' : 'Compilation réussie'}
                   </span>
                 ) : (
-                  <span className="text-xs text-muted-foreground">
-                    Enregistrez pour ajouter la variante au lobby
-                  </span>
+                  <span className="text-xs text-muted-foreground">Générez pour obtenir un CompiledRuleset</span>
                 )}
               </div>
 
