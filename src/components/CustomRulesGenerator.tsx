@@ -65,7 +65,6 @@ const buildDefaultVariantName = (promptValue: string, level: DifficultyLevel) =>
   if (trimmed.length === 0) {
     return `Variante personnalisée (${difficultyLabelMap[level]})`;
   }
-
   const firstLine = trimmed.split(/\n+/)[0]?.trim() ?? "";
   const sanitized = firstLine.length > 0 ? firstLine : trimmed;
   return sanitized.length > 60 ? `${sanitized.slice(0, 57)}…` : sanitized;
@@ -77,21 +76,15 @@ const buildSummary = (promptValue: string, rulesValue: string, spec?: RuleSpec |
       ? `${spec.meta.description.slice(0, 237)}…`
       : spec.meta.description;
   }
-
   const trimmedPrompt = promptValue.trim();
   if (trimmedPrompt.length > 0) {
     return trimmedPrompt.length > 240 ? `${trimmedPrompt.slice(0, 237)}…` : trimmedPrompt;
   }
-
   const firstLine = rulesValue
     .split("\n")
     .map((line) => line.trim())
     .find((line) => line.length > 0);
-
-  if (!firstLine) {
-    return "Variante personnalisée générée avec l’outil IA.";
-  }
-
+  if (!firstLine) return "Variante personnalisée générée avec l’outil IA.";
   return firstLine.length > 240 ? `${firstLine.slice(0, 237)}…` : firstLine;
 };
 
@@ -118,12 +111,24 @@ export function CustomRulesGenerator() {
 
   const hasGeneratedContent = generatedRules.trim().length > 0;
 
-  const handleSaveVariant = async () => {
+  // ---- helpers
+  const ensureCompiledHash = useCallback(
+    async (maybeRuleset: CompiledRuleset | null, maybeHash: string | null) => {
+      if (!maybeRuleset) return { ruleset: null as CompiledRuleset | null, hash: null as string | null };
+      if (typeof maybeHash === "string" && maybeHash.length > 0) {
+        return { ruleset: maybeRuleset, hash: maybeHash };
+      }
+      const newHash = await computeCompiledRulesetHash(maybeRuleset);
+      return { ruleset: maybeRuleset, hash: newHash };
+    },
+    []
+  );
+
+  const handleSaveVariant = useCallback(async () => {
     if (!hasGeneratedContent) {
       toast.error("Générez d’abord des règles avant d’enregistrer la variante.");
       return;
     }
-
     if (!variantName.trim()) {
       toast.error("Donnez un nom à votre variante avant de l’enregistrer.");
       return;
@@ -133,24 +138,49 @@ export function CustomRulesGenerator() {
     setLastSavedVariantId(null);
 
     try {
+      // si un ruleset compilé existe, s’assurer d’avoir un hash
+      let compiledBlock: {
+        hash: string;
+        generatedAt: string;
+        warnings: string[];
+        ruleset: CompiledRuleset;
+      } | null = null;
+
+      if (compiledRuleset) {
+        const { hash } = await ensureCompiledHash(compiledRuleset, compiledHash);
+        if (hash) {
+          compiledBlock = {
+            hash,
+            generatedAt: new Date().toISOString(),
+            warnings: compilerWarnings,
+            ruleset: compiledRuleset,
+          };
+        }
+      }
+
       const promptText = description.trim();
       const summary = buildSummary(promptText, generatedRules, ruleSpec);
-      const metadataPayload: Record<string, unknown> = {
-        slug: slugify(variantName),
-      };
 
-      if (compiledHash && compiledRuleset) {
-        metadataPayload.compiled = {
-          hash: compiledHash,
-          generatedAt: new Date().toISOString(),
-          warnings: compilerWarnings,
-          ruleset: compiledRuleset,
-        };
+      // slug stable + suffixe anti-collision (si ruleset compilé)
+      const baseSlug = slugify(variantName);
+      const slug =
+        compiledBlock?.hash
+          ? `${baseSlug}-${compiledBlock.hash.slice(0, 6)}`
+          : baseSlug;
+
+      const metadataPayload: Record<string, unknown> = { slug };
+      if (compiledBlock) {
+        metadataPayload.compiled = compiledBlock;
+        // petit indicateur pour l’UI du lobby
+        metadataPayload.kind = "automated";
       }
 
       if (ruleSpec) {
         metadataPayload.ruleSpec = ruleSpec;
       }
+
+      const effectiveSource: TablesInsert<'chess_variants'>['source'] =
+        compiledBlock ? ('compiled' as any) : 'generated';
 
       const payload: TablesInsert<'chess_variants'> = {
         title: variantName.trim(),
@@ -158,7 +188,7 @@ export function CustomRulesGenerator() {
         rules: generatedRules,
         difficulty,
         prompt: promptText.length > 0 ? promptText : null,
-        source: 'generated',
+        source: effectiveSource,
         metadata: metadataPayload as TablesInsert<'chess_variants'>['metadata'],
         rule_id: generatedRuleId,
       };
@@ -175,9 +205,8 @@ export function CustomRulesGenerator() {
       if (error) {
         const conflictText = `${(error as PostgrestError | undefined)?.message ?? ""} ${
           (error as PostgrestError | undefined)?.details ?? ""
-        }`
-          .toLowerCase()
-          .trim();
+        }`.toLowerCase().trim();
+
         const isRuleIdConflict =
           Boolean(generatedRuleId) &&
           (conflictText.includes('duplicate key') ||
@@ -191,7 +220,7 @@ export function CustomRulesGenerator() {
             rules: generatedRules,
             difficulty,
             prompt: promptText.length > 0 ? promptText : null,
-            source: 'generated',
+            source: effectiveSource as any,
             metadata: metadataPayload as TablesUpdate<'chess_variants'>['metadata'],
             rule_id: generatedRuleId,
           };
@@ -203,9 +232,7 @@ export function CustomRulesGenerator() {
             .select()
             .single();
 
-          if (updateError) {
-            throw updateError;
-          }
+          if (updateError) throw updateError;
 
           insertedVariantId = updatedVariant?.id ?? null;
           isUpdate = true;
@@ -245,7 +272,20 @@ export function CustomRulesGenerator() {
     } finally {
       setIsSavingVariant(false);
     }
-  };
+  }, [
+    hasGeneratedContent,
+    variantName,
+    description,
+    generatedRules,
+    ruleSpec,
+    compiledRuleset,
+    compiledHash,
+    compilerWarnings,
+    generatedRuleId,
+    queryClient,
+    difficulty,
+    ensureCompiledHash
+  ]);
 
   const handleManualCompiledImport = useCallback(async () => {
     const rawInput = manualCompiledInput.trim();
@@ -253,7 +293,6 @@ export function CustomRulesGenerator() {
       setManualCompiledError("Collez un JSON valide avant de valider.");
       return;
     }
-
     setIsValidatingCompiledJson(true);
     setManualCompiledError(null);
 
@@ -275,11 +314,9 @@ export function CustomRulesGenerator() {
       if (!board || typeof board !== "object") {
         throw new Error("La propriété board est manquante ou invalide.");
       }
-
       if (!Array.isArray(pieces)) {
         throw new Error("La propriété pieces doit être un tableau.");
       }
-
       if (!rules || typeof rules !== "object") {
         throw new Error("La propriété rules est manquante ou invalide.");
       }
@@ -297,7 +334,7 @@ export function CustomRulesGenerator() {
 
       const metaName = typeof meta.name === "string" ? meta.name.trim() : "";
       const metaDescription = typeof meta.description === "string" ? meta.description.trim() : "";
-      const metaId = typeof meta.id === "string" ? meta.id.trim() : "";
+      const metaId = typeof (meta as any).id === "string" ? (meta as any).id.trim() : "";
 
       if (metaId.length > 0) {
         setGeneratedRuleId(metaId);
@@ -307,9 +344,7 @@ export function CustomRulesGenerator() {
 
       if (metaName.length > 0) {
         setGeneratedRuleName(metaName);
-        if (!variantName.trim()) {
-          setVariantName(metaName);
-        }
+        if (!variantName.trim()) setVariantName(metaName);
       }
 
       if (metaDescription.length > 0) {
@@ -329,7 +364,7 @@ export function CustomRulesGenerator() {
     }
   }, [manualCompiledInput, variantName]);
 
-  const handleGenerate = async () => {
+  const handleGenerate = useCallback(async () => {
     if (!description.trim()) {
       toast.error("Veuillez décrire les règles que vous souhaitez");
       return;
@@ -355,8 +390,8 @@ export function CustomRulesGenerator() {
       if (error) {
         console.error('Supabase function error:', error);
         const message =
-          typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
-            ? error.message
+          typeof error === 'object' && error !== null && 'message' in error && typeof (error as any).message === 'string'
+            ? (error as any).message
             : "Erreur lors de la génération des règles";
         toast.error(message);
         setGeneratedRules("");
@@ -369,8 +404,18 @@ export function CustomRulesGenerator() {
 
       const spec = typed.ruleSpec ?? null;
       setRuleSpec(spec ?? null);
-      setCompiledRuleset(typed.compiledRuleset ?? null);
-      setCompiledHash(typeof typed.compiledHash === 'string' ? typed.compiledHash : null);
+
+      // ---- si l’API fournit un compiledRuleset, on s’assure d’un hash et on pré-remplit l’éditeur JSON
+      if (typed.compiledRuleset) {
+        const { ruleset, hash } = await ensureCompiledHash(typed.compiledRuleset, typed.compiledHash ?? null);
+        setCompiledRuleset(ruleset);
+        setCompiledHash(hash);
+        setManualCompiledInput(JSON.stringify(ruleset, null, 2));
+      } else {
+        setCompiledRuleset(null);
+        setCompiledHash(null);
+      }
+
       const warnings = Array.isArray(typed.compilerWarnings) ? typed.compilerWarnings : [];
       setCompilerWarnings(warnings);
 
@@ -385,7 +430,8 @@ export function CustomRulesGenerator() {
 
       setVariantName((previous) => (previous ? previous : suggestedName));
       setGeneratedRuleId(typeof typed.ruleId === 'string' ? typed.ruleId : null);
-      setGeneratedRuleName(typeof typed.ruleId === 'string' ? suggestedName : null);
+      // BUGFIX: on utilisait ruleId par erreur
+      setGeneratedRuleName(typeof typed.ruleName === 'string' ? typed.ruleName : suggestedName);
       setLastSavedVariantId(null);
 
       if (typeof typed.warning === 'string' && typed.warning.length > 0) {
@@ -407,7 +453,7 @@ export function CustomRulesGenerator() {
     } finally {
       setIsGenerating(false);
     }
-  };
+  }, [description, difficulty, variantName, ensureCompiledHash]);
 
   useEffect(() => {
     if (compiledRuleset) {
@@ -417,17 +463,10 @@ export function CustomRulesGenerator() {
   }, [compiledRuleset]);
 
   const compilationStatus = useMemo(() => {
-    if (!compiledHash) {
-      return { label: "Compilation en attente", tone: "muted" as const };
-    }
-
+    if (!compiledHash) return { label: "Compilation en attente", tone: "muted" as const };
     if (compilerWarnings.length > 0) {
-      return {
-        label: `Hash ${compiledHash.slice(0, 8)}… (avertissements)`,
-        tone: "warning" as const,
-      };
+      return { label: `Hash ${compiledHash.slice(0, 8)}… (avertissements)`, tone: "warning" as const };
     }
-
     return { label: `Hash ${compiledHash.slice(0, 8)}…`, tone: "success" as const };
   }, [compiledHash, compilerWarnings]);
 
@@ -457,29 +496,19 @@ export function CustomRulesGenerator() {
           <Select
             value={difficulty}
             onValueChange={(value) => {
-              if (isDifficultyLevel(value)) {
-                setDifficulty(value);
-              }
+              if (isDifficultyLevel(value)) setDifficulty(value);
             }}
           >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               {difficultyLevels.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
+                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        <Button
-          onClick={handleGenerate}
-          disabled={isGenerating || !description.trim()}
-          className="w-full"
-        >
+        <Button onClick={handleGenerate} disabled={isGenerating || !description.trim()} className="w-full">
           {isGenerating ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -617,9 +646,7 @@ export function CustomRulesGenerator() {
                       <>Valider le JSON</>
                     )}
                   </Button>
-                  <span>
-                    Le hash sera recalculé automatiquement après une importation manuelle.
-                  </span>
+                  <span>Le hash sera recalculé automatiquement après une importation manuelle.</span>
                 </div>
                 {manualCompiledError && (
                   <p className="text-xs text-amber-600 dark:text-amber-400">⚠️ {manualCompiledError}</p>
