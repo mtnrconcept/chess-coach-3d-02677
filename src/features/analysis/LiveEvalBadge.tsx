@@ -59,7 +59,7 @@ interface LatestEvaluation {
   latencyMs?: number;
 }
 
-const DEFAULT_SERVER_PATH = "/functions/v1/live-eval";
+const DEFAULT_SERVER_PATH = "wss://ucaqbhmyutlnitnedowk.functions.supabase.co/functions/v1/live-eval";
 
 function buildSocketUrl(serverUrl: string): string {
   if (serverUrl.startsWith("ws://") || serverUrl.startsWith("wss://")) {
