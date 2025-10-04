@@ -92,8 +92,8 @@ function evaluateMaterial(fen: string, color: 'w' | 'b'): number {
   let total = 0;
   for (const file of FILES) {
     for (let rank = 1; rank <= 8; rank += 1) {
-      const square = `${file}${rank}`;
-      const piece = board.get(square as const);
+      const square = `${file}${rank}` as `${typeof FILES[number]}${number}`;
+      const piece = board.get(square);
       if (piece && piece.color === color) {
         total += PIECE_VALUES[piece.type];
       }
@@ -157,7 +157,7 @@ function detectHangingPiece(context: PatternDetectionContext): DetectedPattern |
   } | null = null;
 
   for (const [square, moves] of captureTargets.entries()) {
-    const piece = opponentBoard.get(square as const);
+    const piece = opponentBoard.get(square as any);
     if (!piece || piece.color !== context.color) continue;
     const defenders = defenderMoves.filter((move) => move.to === square);
     if (defenders.length > 0) continue;
@@ -189,14 +189,14 @@ function detectForkThreat(context: PatternDetectionContext): DetectedPattern | n
   for (const file of FILES) {
     for (let rank = 1; rank <= 8; rank += 1) {
       const square = `${file}${rank}`;
-      const piece = board.get(square as const);
+      const piece = board.get(square as any);
       if (!piece || piece.color !== opponent || piece.type !== 'n') continue;
       const { file: knightFile, rank: knightRank } = squareToCoords(square);
       const targets: Array<{ square: string; piece: PieceSymbol; value: number }> = [];
       for (const [df, dr] of KNIGHT_OFFSETS) {
         const targetSquare = coordsToSquare(knightFile + df, knightRank + dr);
         if (!targetSquare) continue;
-        const targetPiece = board.get(targetSquare as const);
+        const targetPiece = board.get(targetSquare as any);
         if (!targetPiece || targetPiece.color !== context.color) continue;
         const value = PIECE_VALUES[targetPiece.type];
         if (value < 3 && targetPiece.type !== 'k') continue;
@@ -236,7 +236,7 @@ function detectPinnedPieces(context: PatternDetectionContext): DetectedPattern |
   for (const file of FILES) {
     for (let rank = 1; rank <= 8; rank += 1) {
       const square = `${file}${rank}`;
-      const piece = board.get(square as const);
+      const piece = board.get(square as any);
       if (piece && piece.color === context.color && piece.type === 'k') {
         kingSquare = square;
       }
@@ -257,7 +257,7 @@ function detectPinnedPieces(context: PatternDetectionContext): DetectedPattern |
       while (true) {
         const target = coordsToSquare(kingFile + df * step, kingRank + dr * step);
         if (!target) break;
-        const occupant = board.get(target as const);
+        const occupant = board.get(target as any);
         if (!occupant) {
           step += 1;
           continue;

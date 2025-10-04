@@ -239,7 +239,11 @@ function applyMove(chess: Chess, uciMove: string) {
   if (move) {
     chess.move({ from: move.from, to: move.to, promotion: move.promotion });
   } else {
-    chess.move(uciMove, { sloppy: true });
+    try {
+      chess.move(uciMove);
+    } catch {
+      // Fallback: try to parse as SAN
+    }
   }
 }
 
@@ -264,7 +268,9 @@ async function runAnalysis(request: AnalysisRequest): Promise<AnalysisResponse> 
   const depth = request.depth ?? 20;
   const multiPv = request.multiPv ?? 3;
   const chess = new Chess();
-  if (!chess.load_pgn(request.pgn)) {
+  try {
+    chess.loadPgn(request.pgn);
+  } catch {
     throw new Error('Invalid PGN payload');
   }
 
