@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
 import type { PostgrestError } from "@supabase/supabase-js";
 import type { TablesInsert, TablesUpdate } from "@/services/supabase/types";
 import type { CompiledRuleset, RuleSpec } from "@/lib/rulesets/types";
+import { computeCompiledRulesetHash } from "@/lib/rulesets/hash";
 
 type DifficultyLevel = "beginner" | "intermediate" | "advanced";
 
@@ -111,6 +112,9 @@ export function CustomRulesGenerator() {
   const [compiledHash, setCompiledHash] = useState<string | null>(null);
   const [ruleSpec, setRuleSpec] = useState<RuleSpec | null>(null);
   const [compilerWarnings, setCompilerWarnings] = useState<string[]>([]);
+  const [manualCompiledInput, setManualCompiledInput] = useState("");
+  const [manualCompiledError, setManualCompiledError] = useState<string | null>(null);
+  const [isValidatingCompiledJson, setIsValidatingCompiledJson] = useState(false);
 
   const hasGeneratedContent = generatedRules.trim().length > 0;
 
@@ -243,6 +247,88 @@ export function CustomRulesGenerator() {
     }
   };
 
+  const handleManualCompiledImport = useCallback(async () => {
+    const rawInput = manualCompiledInput.trim();
+    if (rawInput.length === 0) {
+      setManualCompiledError("Collez un JSON valide avant de valider.");
+      return;
+    }
+
+    setIsValidatingCompiledJson(true);
+    setManualCompiledError(null);
+
+    try {
+      const parsed = JSON.parse(rawInput) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("Le JSON fourni ne correspond pas à un objet.");
+      }
+
+      const meta = parsed.meta as Record<string, unknown> | undefined;
+      if (!meta || typeof meta !== "object") {
+        throw new Error("La propriété meta est manquante ou invalide.");
+      }
+
+      const board = parsed.board as Record<string, unknown> | undefined;
+      const pieces = parsed.pieces as unknown;
+      const rules = parsed.rules as Record<string, unknown> | undefined;
+
+      if (!board || typeof board !== "object") {
+        throw new Error("La propriété board est manquante ou invalide.");
+      }
+
+      if (!Array.isArray(pieces)) {
+        throw new Error("La propriété pieces doit être un tableau.");
+      }
+
+      if (!rules || typeof rules !== "object") {
+        throw new Error("La propriété rules est manquante ou invalide.");
+      }
+
+      const compiled = parsed as CompiledRuleset;
+      const hash = await computeCompiledRulesetHash(compiled);
+
+      setCompiledRuleset(compiled);
+      setCompiledHash(hash);
+      setCompilerWarnings([]);
+      setRuleSpec(null);
+      setPluginWarning(null);
+      setWarningMessage(null);
+      setLastSavedVariantId(null);
+
+      const metaName = typeof meta.name === "string" ? meta.name.trim() : "";
+      const metaDescription = typeof meta.description === "string" ? meta.description.trim() : "";
+      const metaId = typeof meta.id === "string" ? meta.id.trim() : "";
+
+      if (metaId.length > 0) {
+        setGeneratedRuleId(metaId);
+      } else if (metaName.length > 0) {
+        setGeneratedRuleId(slugify(metaName));
+      }
+
+      if (metaName.length > 0) {
+        setGeneratedRuleName(metaName);
+        if (!variantName.trim()) {
+          setVariantName(metaName);
+        }
+      }
+
+      if (metaDescription.length > 0) {
+        setGeneratedRules((previous) => (previous.trim().length > 0 ? previous : metaDescription));
+      } else {
+        setGeneratedRules((previous) => (previous.trim().length > 0 ? previous : "Variante importée via CompiledRuleset."));
+      }
+
+      toast.success("CompiledRuleset importé avec succès !");
+    } catch (error) {
+      console.error("Failed to import manual compiled ruleset", error);
+      const message = error instanceof Error ? error.message : "Impossible de lire ce CompiledRuleset.";
+      setManualCompiledError(message);
+      toast.error(message);
+    } finally {
+      setIsValidatingCompiledJson(false);
+    }
+  }, [manualCompiledInput, variantName]);
+
   const handleGenerate = async () => {
     if (!description.trim()) {
       toast.error("Veuillez décrire les règles que vous souhaitez");
@@ -258,6 +344,8 @@ export function CustomRulesGenerator() {
     setCompiledHash(null);
     setRuleSpec(null);
     setCompilerWarnings([]);
+    setManualCompiledInput("");
+    setManualCompiledError(null);
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-custom-rules', {
@@ -494,6 +582,41 @@ export function CustomRulesGenerator() {
                   <label className="text-sm font-medium mb-2 block">Identifiant technique</label>
                   <Input value={generatedRuleId ?? "Non défini"} readOnly className="font-mono text-xs" />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium mb-1 block">CompiledRuleset JSON (coller votre ruleset)</label>
+                <Textarea
+                  value={manualCompiledInput}
+                  onChange={(event) => setManualCompiledInput(event.target.value)}
+                  rows={10}
+                  className="font-mono text-xs"
+                  placeholder="Collez ici un CompiledRuleset JSON valide pour l'importer manuellement."
+                />
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleManualCompiledImport}
+                    disabled={isValidatingCompiledJson}
+                  >
+                    {isValidatingCompiledJson ? (
+                      <>
+                        <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                        Validation…
+                      </>
+                    ) : (
+                      <>Valider le JSON</>
+                    )}
+                  </Button>
+                  <span>
+                    Le hash sera recalculé automatiquement après une importation manuelle.
+                  </span>
+                </div>
+                {manualCompiledError && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">⚠️ {manualCompiledError}</p>
+                )}
               </div>
 
               <Button
