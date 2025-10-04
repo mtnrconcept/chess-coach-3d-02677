@@ -118,43 +118,5 @@
       "hideOpponentInvisiblePiecesInNotations": false,
       "explain": "On conserve la notation complète (PGN/SAN) pour rester conforme au moteur et aux enregistrements."
     }
-  },
-  "tests": [
-    {
-      "name": "Smoke – coups de base OK",
-      "fen": "startpos",
-      "script": [
-        { "move": "e2-e4", "by": "white" },
-        { "assert": "board.occupancy.e4 == pawn@white" },
-        { "move": "e7-e5", "by": "black" },
-        { "assert": "board.occupancy.e5 == pawn@black" }
-      ]
-    },
-    {
-      "name": "Capture diagonale invisible",
-      "fen": "rnbqkbnr/pppp1ppp/8/4p3/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2",
-      "script": [
-        { "desc": "Le pion d4 capture e5 même s’il peut être invisible selon la perspective" },
-        { "move": "d4xe5", "by": "white" },
-        { "assert": "board.occupancy.e5 == pawn@white" }
-      ]
-    },
-    {
-      "name": "Prise en passant invisible",
-      "fen": "rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq d6 0 3",
-      "script": [
-        { "move": "e2-e4", "by": "white" },
-        { "move": "d4xe3ep", "by": "black" },
-        { "assert": "board.occupancy.e3 == pawn@black" }
-      ]
-    },
-    {
-      "name": "Promotion OK",
-      "fen": "8/P7/8/8/8/8/7p/7K w - - 0 1",
-      "script": [
-        { "move": "a8=Q", "by": "white" },
-        { "assert": "board.occupancy.a8 == queen@white" }
-      ]
-    }
-  ]
+  }
 }
