@@ -19,6 +19,7 @@ import {
   getRuleById,
   registerExternalRuleFromSource,
 } from "@/variant-chess-lobby";
+import type { RuleSpec } from "@/lib/rulesets/types";
 import { toast } from "sonner";
 import { Clock, Users, Sword, Hourglass, PlusCircle, XCircle, AlertTriangle } from "lucide-react";
 
@@ -98,6 +99,13 @@ type VariantMetadata = {
     createdAt?: string | null;
     warning?: string | null;
   };
+  compiled?: {
+    hash?: string | null;
+    generatedAt?: string | null;
+    warnings?: string[];
+    ruleset?: unknown;
+  };
+  ruleSpec?: RuleSpec | null;
 };
 
 const parseVariantMetadata = (metadata: unknown): VariantMetadata => {
@@ -120,6 +128,22 @@ const parseVariantMetadata = (metadata: unknown): VariantMetadata => {
       createdAt: typeof plugin.createdAt === "string" ? plugin.createdAt : undefined,
       warning: typeof plugin.warning === "string" ? plugin.warning : undefined,
     };
+  }
+
+  if (base.compiled && typeof base.compiled === "object") {
+    const compiled = base.compiled as Record<string, unknown>;
+    parsed.compiled = {
+      hash: typeof compiled.hash === "string" ? compiled.hash : undefined,
+      generatedAt: typeof compiled.generatedAt === "string" ? compiled.generatedAt : undefined,
+      warnings: Array.isArray(compiled.warnings)
+        ? (compiled.warnings as string[])
+        : undefined,
+      ruleset: compiled.ruleset,
+    };
+  }
+
+  if (base.ruleSpec && typeof base.ruleSpec === "object") {
+    parsed.ruleSpec = base.ruleSpec as RuleSpec;
   }
 
   return parsed;
