@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -408,6 +408,13 @@ export function CustomRulesGenerator() {
       setIsGenerating(false);
     }
   };
+
+  useEffect(() => {
+    if (compiledRuleset) {
+      setManualCompiledInput(JSON.stringify(compiledRuleset, null, 2));
+      setManualCompiledError(null);
+    }
+  }, [compiledRuleset]);
 
   const compilationStatus = useMemo(() => {
     if (!compiledHash) {
