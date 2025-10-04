@@ -26,7 +26,6 @@ type GenerationResponse = {
   rules?: string;
   difficulty?: DifficultyLevel;
   warning?: string;
-  pluginWarning?: string;
   ruleId?: string;
   ruleName?: string;
   pluginCode?: string;
@@ -95,7 +94,6 @@ export function CustomRulesGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedRules, setGeneratedRules] = useState("");
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
-  const [pluginWarning, setPluginWarning] = useState<string | null>(null);
   const [variantName, setVariantName] = useState("");
   const [isSavingVariant, setIsSavingVariant] = useState(false);
   const [lastSavedVariantId, setLastSavedVariantId] = useState<string | null>(null);
@@ -441,10 +439,6 @@ export function CustomRulesGenerator() {
         toast.success("Règles générées avec succès !");
       }
 
-      if (typeof typed.pluginWarning === 'string' && typed.pluginWarning.length > 0) {
-        setPluginWarning(typed.pluginWarning);
-        toast.warning(typed.pluginWarning);
-      }
     } catch (error) {
       console.error('Error generating custom rules:', error);
       const message = error instanceof Error ? error.message : "Erreur lors de la génération des règles";
@@ -585,9 +579,6 @@ export function CustomRulesGenerator() {
                         <li key={index}>⚠️ {warning}</li>
                       ))}
                     </ul>
-                  )}
-                  {pluginWarning && (
-                    <div className="text-xs text-amber-600 dark:text-amber-400">{pluginWarning}</div>
                   )}
                 </div>
               )}
