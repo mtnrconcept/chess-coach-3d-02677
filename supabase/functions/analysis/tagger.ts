@@ -1,5 +1,5 @@
 import { Chess } from 'npm:chess.js';
-import thresholdsConfig from './thresholds.json' assert { type: 'json' };
+import thresholdsConfig from './thresholds.json' with { type: 'json' };
 
 export type AnalysisTag =
   | 'ok'

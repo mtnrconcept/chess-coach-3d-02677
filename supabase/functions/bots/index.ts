@@ -72,15 +72,17 @@ function buildMovePayload(move: ChessJsMove): MovePayload {
 function validateHistory(moves: string[] = [], initialFen?: string) {
   const board = new Chess();
   if (initialFen) {
-    const ok = board.load(initialFen);
-    if (!ok) {
+    try {
+      board.load(initialFen);
+    } catch {
       throw new Error('Invalid initial FEN provided');
     }
   }
 
   for (const san of moves) {
-    const move = board.move(san, { sloppy: true });
-    if (!move) {
+    try {
+      board.move(san);
+    } catch {
       throw new Error(`Invalid SAN move in history: ${san}`);
     }
   }
@@ -169,18 +171,18 @@ serve(async (req) => {
       if (bookMove) {
         const bookBoard = new Chess();
         bookBoard.load(fenBefore);
-        const move = bookBoard.move(bookMove.move, { sloppy: true });
-        if (!move) {
-          console.warn(`Book move ${bookMove.move} invalid for ${fenBefore}, fallback to engine.`);
-        } else {
+        try {
+          const bookMoveResult = bookBoard.move(bookMove.move);
           return jsonResponse(200, {
             sessionId: payload.sessionId ?? null,
             botId: profile.id,
             fenBefore,
             fenAfter: bookBoard.fen(),
-            move: buildMovePayload(move),
+            move: buildMovePayload(bookMoveResult),
             analysis: buildBookAnalysis(bookMove),
           });
+        } catch {
+          console.warn(`Book move ${bookMove.move} invalid for ${fenBefore}, fallback to engine.`);
         }
       }
 

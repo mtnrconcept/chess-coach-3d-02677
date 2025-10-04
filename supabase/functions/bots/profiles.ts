@@ -1,9 +1,9 @@
-import beginner from './profiles/beginner.json' assert { type: 'json' };
-import tactician from './profiles/tactician.json' assert { type: 'json' };
-import gambit from './profiles/gambit.json' assert { type: 'json' };
-import aggressive from './profiles/aggressive.json' assert { type: 'json' };
-import solid from './profiles/solid.json' assert { type: 'json' };
-import zen from './profiles/zen.json' assert { type: 'json' };
+import beginner from './profiles/beginner.json' with { type: 'json' };
+import tactician from './profiles/tactician.json' with { type: 'json' };
+import gambit from './profiles/gambit.json' with { type: 'json' };
+import aggressive from './profiles/aggressive.json' with { type: 'json' };
+import solid from './profiles/solid.json' with { type: 'json' };
+import zen from './profiles/zen.json' with { type: 'json' };
 import type { BotProfileConfig } from './types.ts';
 
 const profiles = [

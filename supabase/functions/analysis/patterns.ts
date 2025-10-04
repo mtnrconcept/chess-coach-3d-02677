@@ -92,10 +92,14 @@ function evaluateMaterial(fen: string, color: 'w' | 'b'): number {
   let total = 0;
   for (const file of FILES) {
     for (let rank = 1; rank <= 8; rank += 1) {
-      const square = `${file}${rank}` as `${typeof FILES[number]}${number}`;
-      const piece = board.get(square);
-      if (piece && piece.color === color) {
-        total += PIECE_VALUES[piece.type];
+      const square = `${file}${rank}`;
+      try {
+        const piece = board.get(square as any);
+        if (piece && piece.color === color) {
+          total += PIECE_VALUES[piece.type];
+        }
+      } catch {
+        continue;
       }
     }
   }

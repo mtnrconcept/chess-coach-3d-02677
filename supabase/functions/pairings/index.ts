@@ -239,11 +239,16 @@ async function hasRepeatedHighAccuracy(
     throw error;
   }
 
+  type ResultRow = {
+    accuracy: { white?: number | null; black?: number | null } | null;
+    pairing: { white_id: string | null; black_id: string | null } | null;
+  };
+
   let highAccuracyCount = 1; // include current game
-  for (const row of data ?? []) {
-    const pairing = row.pairing as { white_id: string | null; black_id: string | null } | null;
+  for (const row of (data as unknown as ResultRow[]) ?? []) {
+    const pairing = row.pairing;
     if (!pairing) continue;
-    const accuracy = (row.accuracy as { white?: number | null; black?: number | null }) ?? {};
+    const accuracy = row.accuracy ?? {};
     if (pairing.white_id === tournamentPlayerId && typeof accuracy.white === 'number' && accuracy.white >= 97) {
       highAccuracyCount += 1;
     } else if (
@@ -302,20 +307,29 @@ async function handleGeneratePairings(req: Request, supabase: SupabaseClient) {
     return jsonResponse(400, { error: 'missing_tournament_id' });
   }
 
-  const { data: tournament, error: tournamentError } = await supabase
+  const { data: tournamentData, error: tournamentError } = await supabase
     .from('tournaments')
     .select('id, format, current_round, status')
     .eq('id', payload.tournamentId)
-    .maybeSingle();
+    .single();
 
   if (tournamentError) {
     console.error('Failed to load tournament', tournamentError);
     return jsonResponse(500, { error: 'tournament_lookup_failed' });
   }
 
-  if (!tournament) {
+  if (!tournamentData) {
     return jsonResponse(404, { error: 'tournament_not_found' });
   }
+
+  type TournamentRow = {
+    id: string;
+    format: 'swiss' | 'arena' | null;
+    current_round: number | null;
+    status: string;
+  };
+
+  const tournament = tournamentData as unknown as TournamentRow;
 
   const pairingRound = payload.round ?? (tournament.current_round ?? 0) + 1;
   const system: 'swiss' | 'arena' = payload.system ?? tournament.format ?? 'swiss';
@@ -345,7 +359,18 @@ async function handleGeneratePairings(req: Request, supabase: SupabaseClient) {
     return jsonResponse(500, { error: 'players_lookup_failed' });
   }
 
-  const sortedPlayers = [...(players ?? [])];
+  type PlayerRow = {
+    id: string;
+    score: number;
+    rating: number | null;
+    wins: number;
+    draws: number;
+    losses: number;
+    streak: number;
+    last_active_at: string | null;
+  };
+
+  const sortedPlayers = [...((players as unknown as PlayerRow[]) ?? [])];
   if (system === 'swiss') {
     sortedPlayers.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
@@ -428,42 +453,76 @@ async function handleReportResult(req: Request, supabase: SupabaseClient) {
     return jsonResponse(400, { error: 'invalid_payload' });
   }
 
-  const { data: pairing, error: pairingError } = await supabase
+  const { data: pairingData, error: pairingError } = await supabase
     .from('pairings')
     .select('id, tournament_id, white_id, black_id, result_status, round')
     .eq('id', payload.pairingId)
-    .maybeSingle();
+    .single();
 
   if (pairingError) {
     console.error('Failed to load pairing', pairingError);
     return jsonResponse(500, { error: 'pairing_lookup_failed' });
   }
 
-  if (!pairing) {
+  if (!pairingData) {
     return jsonResponse(404, { error: 'pairing_not_found' });
   }
 
-  const { data: tournament, error: tournamentError } = await supabase
+  type PairingRow = {
+    id: string;
+    tournament_id: string;
+    white_id: string | null;
+    black_id: string | null;
+    result_status: string | null;
+    round: number;
+  };
+
+  const pairing = pairingData as unknown as PairingRow;
+
+  const { data: tournamentData, error: tournamentError } = await supabase
     .from('tournaments')
     .select('id, is_rated')
     .eq('id', pairing.tournament_id)
-    .maybeSingle();
+    .single();
 
   if (tournamentError) {
     console.error('Failed to load tournament for result', tournamentError);
     return jsonResponse(500, { error: 'tournament_lookup_failed' });
   }
 
-  if (!tournament) {
+  if (!tournamentData) {
     return jsonResponse(404, { error: 'tournament_not_found' });
   }
+
+  type TournamentDataRow = {
+    id: string;
+    is_rated: boolean;
+  };
+
+  const tournament = tournamentData as unknown as TournamentDataRow;
+
+  type TournamentPlayerRow = {
+    id: string;
+    player_id: string | null;
+    rating: number | null;
+    score: number;
+    wins: number;
+    draws: number;
+    losses: number;
+    streak: number;
+    flags: Json[] | null;
+  };
 
   const whitePlayer = pairing.white_id
     ? await supabase
         .from('tournament_players')
         .select('id, player_id, rating, score, wins, draws, losses, streak, flags')
         .eq('id', pairing.white_id)
-        .maybeSingle()
+        .single()
+        .then(({ data, error }) => ({
+          data: data ? (data as unknown as TournamentPlayerRow) : null,
+          error,
+        }))
     : { data: null, error: null };
 
   const blackPlayer = pairing.black_id
@@ -471,7 +530,11 @@ async function handleReportResult(req: Request, supabase: SupabaseClient) {
         .from('tournament_players')
         .select('id, player_id, rating, score, wins, draws, losses, streak, flags')
         .eq('id', pairing.black_id)
-        .maybeSingle()
+        .single()
+        .then(({ data, error }) => ({
+          data: data ? (data as unknown as TournamentPlayerRow) : null,
+          error,
+        }))
     : { data: null, error: null };
 
   if (whitePlayer.error || blackPlayer.error) {
@@ -572,7 +635,7 @@ async function handleReportResult(req: Request, supabase: SupabaseClient) {
     ratingDiff.black = blackRatingUpdate.delta;
   }
 
-  const { data: resultRows, error: resultError } = await supabase
+  const { data: resultData, error: resultError } = await supabase
     .from('results')
     .insert({
       pairing_id: pairing.id,
@@ -597,13 +660,18 @@ async function handleReportResult(req: Request, supabase: SupabaseClient) {
       rating_diff: Object.keys(ratingDiff).length ? ratingDiff : null,
     })
     .select('id')
-    .maybeSingle();
+    .single();
 
   if (resultError) {
     console.error('Failed to insert result', resultError);
     return jsonResponse(500, { error: 'result_creation_failed' });
   }
 
+  type ResultRow = {
+    id: string;
+  };
+
+  const resultRows = resultData as unknown as ResultRow;
   const resultId = resultRows?.id ?? null;
 
   const whiteUpdate: Database['public']['Tables']['tournament_players']['Update'] = {};

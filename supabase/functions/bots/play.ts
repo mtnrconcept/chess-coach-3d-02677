@@ -115,11 +115,11 @@ class StockfishProcess {
     await this.write(`position fen ${fen}`);
 
     const limits = this.engine.limits ?? DEFAULT_LIMITS;
-    if (limits.nodes) {
+    if ('nodes' in limits && limits.nodes) {
       await this.write(`go nodes ${limits.nodes}`);
-    } else if (limits.moveTimeMs) {
+    } else if ('moveTimeMs' in limits && limits.moveTimeMs) {
       await this.write(`go movetime ${limits.moveTimeMs}`);
-    } else if (limits.depth) {
+    } else if ('depth' in limits && limits.depth) {
       await this.write(`go depth ${limits.depth}`);
     } else {
       await this.write(`go movetime ${DEFAULT_LIMITS.moveTimeMs}`);
@@ -312,11 +312,12 @@ export async function analyseWithEngine(profile: BotProfileConfig, fen: string):
 export function applyUciMove(fen: string, uci: string) {
   const board = new Chess();
   board.load(fen);
-  const move = board.move(uci, { sloppy: true });
-  if (!move) {
+  try {
+    const move = board.move(uci);
+    return { board, move };
+  } catch {
     throw new Error(`Failed to apply move ${uci} to position ${fen}`);
   }
-  return { board, move };
 }
 
 export function pvToSanSequence(fen: string, pv: string[]): string[] {
@@ -324,8 +325,12 @@ export function pvToSanSequence(fen: string, pv: string[]): string[] {
   board.load(fen);
   const sequence: string[] = [];
   for (const uci of pv) {
-    const move = board.move(uci, { sloppy: true });
-    sequence.push(move?.san ?? uci);
+    try {
+      const move = board.move(uci);
+      sequence.push(move?.san ?? uci);
+    } catch {
+      sequence.push(uci);
+    }
   }
   return sequence;
 }
