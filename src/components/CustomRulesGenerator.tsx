@@ -180,7 +180,7 @@ export function CustomRulesGenerator() {
       }
 
       const effectiveSource: TablesInsert<'chess_variants'>['source'] =
-        compiledBlock ? ('compiled' as any) : 'generated';
+        compiledBlock ? 'compiled' : 'generated';
 
       const payload: TablesInsert<'chess_variants'> = {
         title: variantName.trim(),
@@ -220,7 +220,7 @@ export function CustomRulesGenerator() {
             rules: generatedRules,
             difficulty,
             prompt: promptText.length > 0 ? promptText : null,
-            source: effectiveSource as any,
+            source: effectiveSource,
             metadata: metadataPayload as TablesUpdate<'chess_variants'>['metadata'],
             rule_id: generatedRuleId,
           };

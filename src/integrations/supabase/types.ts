@@ -138,7 +138,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      variant_source: "builtin" | "generated"
+      variant_source: "builtin" | "generated" | "compiled"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -266,7 +266,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      variant_source: ["builtin", "generated"],
+      variant_source: ["builtin", "generated", "compiled"],
     },
   },
 } as const
