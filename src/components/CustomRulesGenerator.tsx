@@ -15,7 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { TablesInsert } from "@/services/supabase/types";
+import type { PostgrestError } from "@supabase/supabase-js";
+import type { TablesInsert, TablesUpdate } from "@/services/supabase/types";
 import { registerExternalRuleFromSource } from "@/variant-chess-lobby";
 
 type DifficultyLevel = "beginner" | "intermediate" | "advanced";
@@ -148,11 +149,50 @@ export function CustomRulesGenerator() {
         .select()
         .single();
 
-      if (error) {
-        throw error;
-      }
+      let insertedVariantId = data?.id ?? null;
+      let isUpdate = false;
 
-      const insertedVariantId = data?.id;
+      if (error) {
+        const conflictText = `${(error as PostgrestError | undefined)?.message ?? ""} ${
+          (error as PostgrestError | undefined)?.details ?? ""
+        }`
+          .toLowerCase()
+          .trim();
+        const isRuleIdConflict =
+          Boolean(generatedRuleId) &&
+          (conflictText.includes('duplicate key') ||
+            conflictText.includes('chess_variants_rule_id_key') ||
+            (error as PostgrestError | undefined)?.code === '23505');
+
+        if (isRuleIdConflict && generatedRuleId) {
+          const updatePayload: TablesUpdate<'chess_variants'> = {
+            title: variantName.trim(),
+            summary,
+            rules: generatedRules,
+            difficulty,
+            prompt: promptText.length > 0 ? promptText : null,
+            source: 'generated',
+            metadata: metadataPayload as TablesUpdate<'chess_variants'>['metadata'],
+            rule_id: generatedRuleId,
+          };
+
+          const { data: updatedVariant, error: updateError } = await supabase
+            .from('chess_variants')
+            .update(updatePayload)
+            .eq('rule_id', generatedRuleId)
+            .select()
+            .single();
+
+          if (updateError) {
+            throw updateError;
+          }
+
+          insertedVariantId = updatedVariant?.id ?? null;
+          isUpdate = true;
+        } else {
+          throw error;
+        }
+      }
 
       if (insertedVariantId) {
         const promptPayload: TablesInsert<'chess_variant_prompts'> = {
@@ -186,7 +226,9 @@ export function CustomRulesGenerator() {
       }
 
       setLastSavedVariantId(insertedVariantId ?? null);
-      toast.success("Votre variante a été ajoutée au lobby !");
+      toast.success(
+        isUpdate ? "Votre variante a été mise à jour dans le lobby !" : "Votre variante a été ajoutée au lobby !"
+      );
       await queryClient.invalidateQueries({ queryKey: ["chess-variants"] });
     } catch (error) {
       console.error('Error saving custom variant:', error);
