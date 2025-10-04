@@ -299,8 +299,21 @@ export function createChessJsEngineAdapter(chess: Chess): ChessJsEngineAdapter {
       const fromSquare = posToAlgebraic(move.from);
       const toSquare = posToAlgebraic(move.to);
       const promotion = move.promotion ? promotionMap[move.promotion] : undefined;
+      
+      const board = extended.board;
+      const movingSquare = board[move.from.y][move.from.x];
+      const targetSquare = board[move.to.y][move.to.x];
+      const movingPiece = movingSquare.piece;
+      
+      if (!movingPiece) {
+        throw new Error("No piece found at source square");
+      }
+      
+      let result: ReturnType<Chess["move"]>;
+      let capturedPiece: Piece | undefined;
+      
       try {
-        const result = chessInstance.move({ from: fromSquare, to: toSquare, promotion });
+        result = chessInstance.move({ from: fromSquare, to: toSquare, promotion });
         if (!result) {
           throw new Error("Illegal move attempted in adapter");
         }
@@ -308,16 +321,6 @@ export function createChessJsEngineAdapter(chess: Chess): ChessJsEngineAdapter {
         if (!simulate) {
           lastMoveResult = result;
         }
-
-        const board = extended.board;
-        const movingSquare = board[move.from.y][move.from.x];
-        const targetSquare = board[move.to.y][move.to.x];
-        const movingPiece = movingSquare.piece;
-        if (!movingPiece) {
-          throw new Error("No piece found at source square");
-        }
-
-        let capturedPiece: Piece | undefined;
 
         if (result.flags.includes("e")) {
           const dir = movingPiece.color === "white" ? 1 : -1;

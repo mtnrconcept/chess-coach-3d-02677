@@ -505,7 +505,8 @@ const RuleBishopChameleon: RulePlugin = {
         transform: (s) => {
           // Simple déplacement d'1 case orthogonale
           s = api.applyStandardMove(s, { from: move.from, to: move.to });
-          state.flags[b.color][move.meta.usedKey] = true;
+          const usedKey = move.meta?.usedKey as string;
+          if (usedKey) state.flags[b.color][usedKey] = true;
         }
       };
     }
@@ -521,7 +522,7 @@ const RuleAngryKing: RulePlugin = {
   onTurnStart(state, api) {
     const me = state.turn;
     const key = `${me}_angry_king_charges`;
-    const prev = state.flags[me][key] || 0;
+    const prev = (state.flags[me][key] as number) || 0;
     // reset par défaut
     state.flags[me][key] = Math.max(0, prev - 1);
   },
@@ -664,7 +665,8 @@ const RuleAirDrop: RulePlugin = {
       return {
         allow: true,
         transform: (s) => {
-          const p = gy.splice(move.meta.pickIndex ?? 0, 1)[0];
+          const pickIndex = (move.meta?.pickIndex as number) ?? 0;
+          const p = gy.splice(pickIndex, 1)[0];
           if (!p) return;
           api.setPieceAt(s, move.to, p);
           state.flags[me].airdrop_ready = false;
@@ -722,7 +724,8 @@ const RuleRookCatapult: RulePlugin = {
   },
   onBeforeMoveApply(state, move, api) {
     if (move.meta?.special==='catapult') {
-      const rook = api.getPieceAt(state, move.meta.rook);
+      const rookPos = move.meta.rook as Pos;
+      const rook = api.getPieceAt(state, rookPos);
       const pawn = api.getPieceAt(state, move.from);
       if (!rook || rook.type!=='rook' || !pawn || pawn.type!=='pawn' || pawn.color!==rook.color) return { allow:false };
       if (api.getPieceAt(state, move.to)) return { allow:false };
@@ -773,7 +776,7 @@ const RuleGhostBishop: RulePlugin = {
   },
   onBeforeMoveApply(state, move, api) {
     if (move.meta?.special==='ghost_bishop') {
-      const me: Color = move.meta.color;
+      const me = move.meta.color as Color;
       if (!state.flags[me][`${me}_ghost_bishop`]) return { allow:false };
       return {
         allow:true,
@@ -813,7 +816,8 @@ const RuleElasticPawn: RulePlugin = {
         allow:true,
         transform: (s) => {
           api.applyStandardMove(s, { from: move.from, to: move.to });
-          state.flags[p.color][move.meta.usedKey] = true;
+          const usedKey = move.meta?.usedKey as string;
+          if (usedKey) state.flags[p.color][usedKey] = true;
         }
       };
     }
@@ -830,9 +834,10 @@ const RuleQueenBerserk: RulePlugin = {
     const { moved, captured } = ctx;
     if (moved.type!=='queen') return;
     const key = `${moved.color}_qcapstreak`;
-    const prev = state.flags[moved.color][key] || 0;
+    const prev = (state.flags[moved.color][key] as number) || 0;
     state.flags[moved.color][key] = captured ? prev + 1 : 0;
-    if (state.flags[moved.color][key] >= 2) {
+    const currentStreak = state.flags[moved.color][key] as number;
+    if (currentStreak >= 2) {
       state.flags[moved.color].queen_berserk = true;
     } else if (!captured) {
       state.flags[moved.color].queen_berserk = false;
@@ -881,7 +886,8 @@ const RuleKingShield: RulePlugin = {
   onBeforeMoveApply(state, move, api) {
     // empêcher la capture d’un pion "shielded"
     const tgt = api.getPieceAt(state, move.to);
-    if (tgt?.type==='pawn' && tgt.tags?.shielded_until >= state.moveNumber) {
+    const shieldedUntil = tgt?.tags?.shielded_until as number | undefined;
+    if (tgt?.type==='pawn' && shieldedUntil !== undefined && shieldedUntil >= state.moveNumber) {
       // si le move essaye de le capturer, refuser
       const fromPc = api.getPieceAt(state, move.from);
       const isCapture = !!tgt && (!fromPc || fromPc.color!==tgt.color);
@@ -920,7 +926,8 @@ const RuleDoubleKnight: RulePlugin = {
   onBeforeMoveApply(state, move, api) {
     if (move.meta?.special!=='double_knight') return { allow:true };
     const k1 = api.getPieceAt(state, move.from);
-    const k2 = api.getPieceAt(state, move.meta.mate);
+    const matePos = move.meta.mate as Pos;
+    const k2 = api.getPieceAt(state, matePos);
     if (!k1 || !k2 || k1.type!=='knight' || k2.type!=='knight' || k1.color!==k2.color) return { allow:false };
     return {
       allow:true,
@@ -930,10 +937,11 @@ const RuleDoubleKnight: RulePlugin = {
         // Déplacer k2 sur une case parallèle si libre, sinon rien
         const dx = move.to.x - move.from.x;
         const dy = move.to.y - move.from.y;
-        const to2 = { x: move.meta.mate.x + dx, y: move.meta.mate.y + dy };
+        const matePos = move.meta.mate as Pos;
+        const to2 = { x: matePos.x + dx, y: matePos.y + dy };
         if (api.inBounds(to2) && !api.getPieceAt(s, to2)) {
-          const kk2 = api.getPieceAt(s, move.meta.mate);
-          if (kk2) { api.setPieceAt(s, move.meta.mate, undefined); api.setPieceAt(s, to2, kk2); }
+          const kk2 = api.getPieceAt(s, matePos);
+          if (kk2) { api.setPieceAt(s, matePos, undefined); api.setPieceAt(s, to2, kk2); }
         }
       }
     };
@@ -986,7 +994,8 @@ const RuleBishopHealer: RulePlugin = {
   },
   onBeforeMoveApply(state, move, api) {
     if (move.meta?.special!=='heal') return { allow:true };
-    const b = api.getPieceAt(state, move.meta.source);
+    const sourcePos = move.meta.source as Pos;
+    const b = api.getPieceAt(state, sourcePos);
     if (!b || b.type!=='bishop') return { allow:false };
     const gy = state.graveyard[b.color];
     const idx = gy.findIndex(p => p.id===move.meta.pickId && (p.type==='pawn'||p.type==='knight'));
@@ -1176,7 +1185,8 @@ const RuleSirenQueen: RulePlugin = {
   },
   onBeforeMoveApply(state, move, api) {
     const p = api.getPieceAt(state, move.from);
-    if (p?.tags?.charmed_until >= state.moveNumber) {
+    const charmedUntil = p?.tags?.charmed_until as number | undefined;
+    if (charmedUntil !== undefined && charmedUntil >= state.moveNumber) {
       return { allow:false, reason:'Sous l’emprise de la Reine Sirène' };
     }
     return { allow:true };
@@ -1209,7 +1219,11 @@ const RuleRookHelicopter: RulePlugin = {
     if (!r || r.type!=='rook') return { allow:false };
     return {
       allow:true,
-      transform: (s)=> { api.applyStandardMove(s, { from: move.from, to: move.to }); state.flags[r.color][move.meta.usedKey]=true; }
+      transform: (s)=> { 
+        api.applyStandardMove(s, { from: move.from, to: move.to }); 
+        const usedKey = move.meta?.usedKey as string;
+        if (usedKey) state.flags[r.color][usedKey] = true;
+      }
     };
   }
 };
@@ -1234,8 +1248,9 @@ const RuleMutantPawn: RulePlugin = {
   onTurnStart(state, api) {
     api.allPieces(state).forEach(({piece})=>{
       if (piece.type==='knight' && piece.tags?.mutant_ttl) {
-        piece.tags.mutant_ttl--;
-        if (piece.tags.mutant_ttl<=0) {
+        const ttl = piece.tags.mutant_ttl as number;
+        piece.tags.mutant_ttl = ttl - 1;
+        if ((piece.tags.mutant_ttl as number) <= 0) {
           // redevient pion
           piece.type='pawn';
           delete piece.tags.mutant_ttl;

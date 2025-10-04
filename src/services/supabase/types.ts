@@ -445,7 +445,6 @@ export type Database = {
     }
     Enums: {
       variant_source: 'builtin' | 'generated'
-      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never

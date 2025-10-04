@@ -334,7 +334,7 @@ export function PuzzleTrainer({ className }: PuzzleTrainerProps) {
         }
       }
 
-      const moves = chess.moves({ square, verbose: true }) as ChessJsMove[];
+      const moves = chess.moves({ square: square as any, verbose: true }) as ChessJsMove[];
 
       if (moves.length === 0) {
         setSelection(null);

@@ -106,8 +106,9 @@ function classifyDelta(deltaPawns: number, thresholds: Thresholds): AnalysisTag 
 
 function buildBoard(fen: string): Chess {
   const board = new Chess();
-  const loaded = board.load(fen);
-  if (!loaded) {
+  try {
+    board.load(fen);
+  } catch {
     board.reset();
   }
   return board;
@@ -167,7 +168,7 @@ export class AnalysisClient {
       return request.reviewMode;
     }
     const chess = new Chess();
-    chess.load_pgn(request.pgn);
+    chess.loadPgn(request.pgn);
     const plyCount = chess.history({ verbose: true }).length;
     return plyCount <= this.options.shortGamePlyThreshold ? 'local' : 'edge';
   }
@@ -181,7 +182,9 @@ export class AnalysisClient {
 
   private async analyseGameLocally(request: AnalyseGameRequest): Promise<AnalyseGameResponse> {
     const chess = new Chess();
-    if (!chess.load_pgn(request.pgn)) {
+    try {
+      chess.loadPgn(request.pgn);
+    } catch {
       throw new Error('Invalid PGN provided for analysis');
     }
     const engine = await this.getEngine();

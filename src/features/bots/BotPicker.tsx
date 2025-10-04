@@ -69,32 +69,45 @@ export function BotPicker({
 
   useEffect(() => {
     let isMounted = true;
-    setIsLoading(true);
-    void supabase
-      .from("bot_profiles")
-      .select("*")
-      .order("elo_target", { ascending: true })
-      .then((response) => {
+    const loadBots = async () => {
+      setIsLoading(true);
+      try {
+        const response = await supabase
+          .from("bot_profiles")
+          .select("*")
+          .order("elo_target", { ascending: true });
+        
         if (!isMounted) return;
+        
         if (response.error) {
           console.error("Failed to load bot profiles", response.error);
           setError("Impossible de charger les profils de bots.");
           setBots([]);
+          setIsLoading(false);
           return;
         }
+        
         const parsed = (response.data ?? []).map((row) => ({
           row,
           style: parseStyle(row.style),
         }));
         setBots(parsed);
         setError(null);
+        setIsLoading(false);
+        
         if (autoSelectFirst && !selectedBotId && parsed.length > 0 && onSelect) {
           onSelect(parsed[0].row);
         }
-      })
-      .finally(() => {
-        if (isMounted) setIsLoading(false);
-      });
+      } catch (error) {
+        if (isMounted) {
+          setError("Impossible de charger les profils de bots.");
+          setBots([]);
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadBots();
 
     return () => {
       isMounted = false;

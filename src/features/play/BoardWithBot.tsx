@@ -245,7 +245,7 @@ export function BoardWithBot({ bot, orientation = "white", className }: BoardWit
         }
       }
 
-      const moves = (chess.moves({ square, verbose: true }) as ChessJsMove[]).filter(
+      const moves = (chess.moves({ square: square as any, verbose: true }) as ChessJsMove[]).filter(
         (candidate) => candidate.color === playerTurn,
       );
 

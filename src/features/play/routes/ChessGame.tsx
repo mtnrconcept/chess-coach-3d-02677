@@ -164,7 +164,8 @@ export default function ChessGame() {
   const describeSpecialMove = (move: VariantMove) => {
     const base = move.meta?.label || move.meta?.special || 'coup spécial';
     const target = posToAlgebraic(move.to);
-    return `${base.replace(/_/g, ' ')} → ${target}`;
+    const baseStr = typeof base === 'string' ? base : String(base);
+    return `${baseStr.replace(/_/g, ' ')} → ${target}`;
   };
 
   const promotionCharToPiece: Record<string, PieceType> = {
