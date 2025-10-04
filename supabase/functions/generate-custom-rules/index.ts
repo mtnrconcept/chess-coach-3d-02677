@@ -279,8 +279,22 @@ RÈGLES DÉTAILLÉES:\n${customRules}`;
             .join('\n')
             .trim();
 
-          if (generatedCode && generatedCode.includes(ruleId)) {
-            pluginCode = generatedCode;
+          if (generatedCode) {
+            const sanitizedCode = generatedCode
+              .replace(/^```[a-zA-Z]*\n?/, '')
+              .replace(/\n?```$/, '')
+              .trim();
+
+            const referencesRuleId =
+              sanitizedCode.includes(ruleId) || sanitizedCode.includes('helpers.ruleId');
+            const exportsModule = /module\.exports\s*=/.test(sanitizedCode);
+
+            if (referencesRuleId && exportsModule) {
+              pluginCode = sanitizedCode;
+            } else {
+              pluginWarning =
+                'Le code généré ne contient pas les références attendues. Utilisation d’un squelette de règle.';
+            }
           } else {
             pluginWarning = 'La génération du code automatique a échoué. Utilisation d’un squelette de règle.';
           }
