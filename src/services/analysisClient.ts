@@ -126,7 +126,11 @@ function applyMove(board: Chess, uci: string) {
   if (move) {
     board.move({ from: move.from, to: move.to, promotion: move.promotion });
   } else {
-    board.move(uci, { sloppy: true });
+    try {
+      board.move(uci);
+    } catch {
+      // Fallback: ignore invalid moves
+    }
   }
 }
 

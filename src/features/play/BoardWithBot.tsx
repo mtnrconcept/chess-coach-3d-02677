@@ -94,13 +94,19 @@ export function BoardWithBot({ bot, orientation = "white", className }: BoardWit
 
   const applyBotMove = useCallback((response: BotMoveSuccess) => {
     const chess = chessRef.current;
-    let move = chess.move({
-      from: response.move.from,
-      to: response.move.to,
-      promotion: response.move.promotion ?? undefined,
-    });
-    if (!move) {
-      move = chess.move(response.move.san, { sloppy: true });
+    let move;
+    try {
+      move = chess.move({
+        from: response.move.from,
+        to: response.move.to,
+        promotion: response.move.promotion ?? undefined,
+      });
+    } catch {
+      try {
+        move = chess.move(response.move.san);
+      } catch {
+        throw new Error("Le coup renvoyé par le bot est illégal dans cette position.");
+      }
     }
     if (!move) {
       throw new Error("Le coup renvoyé par le bot est illégal dans cette position.");

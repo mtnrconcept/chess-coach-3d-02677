@@ -273,12 +273,21 @@ export function PuzzleTrainer({ className }: PuzzleTrainerProps) {
       setStatus("replaying");
       const replySan = solutionLine[nextIndex];
       if (replySan) {
-        const replyMove = chessRef.current.move(replySan, { sloppy: true });
-        if (replyMove) {
-          setFen(chessRef.current.fen());
-          setLastMove({ from: replyMove.from, to: replyMove.to });
-          nextIndex += 1;
-        } else {
+        try {
+          const replyMove = chessRef.current.move(replySan);
+          if (replyMove) {
+            setFen(chessRef.current.fen());
+            setLastMove({ from: replyMove.from, to: replyMove.to });
+            nextIndex += 1;
+          } else {
+            console.warn("Unable to replay engine reply", currentPuzzle.id);
+            setStatus("failed");
+            setFeedback("Impossible de rejouer la suite de la combinaison.");
+            setShowSolution(true);
+            recordResult("failed");
+            return;
+          }
+        } catch {
           console.warn("Unable to replay engine reply", currentPuzzle.id);
           setStatus("failed");
           setFeedback("Impossible de rejouer la suite de la combinaison.");
@@ -375,9 +384,13 @@ export function PuzzleTrainer({ className }: PuzzleTrainerProps) {
       chess.load(currentPuzzle.fen);
       let latest: { from: string; to: string } | null = null;
       for (const san of solutionLine) {
-        const move = chess.move(san, { sloppy: true });
-        if (!move) break;
-        latest = { from: move.from, to: move.to };
+        try {
+          const move = chess.move(san);
+          if (!move) break;
+          latest = { from: move.from, to: move.to };
+        } catch {
+          break;
+        }
       }
       chessRef.current = chess;
       setFen(chess.fen());

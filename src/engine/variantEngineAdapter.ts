@@ -271,10 +271,14 @@ export function createChessJsEngineAdapter(chess: Chess): ChessJsEngineAdapter {
       const from = posToAlgebraic(move.from);
       const to = posToAlgebraic(move.to);
       const promotion = move.promotion ? promotionMap[move.promotion] : undefined;
-      const attempted = chess.move({ from, to, promotion, sloppy: true });
-      if (!attempted) return false;
-      chess.undo();
-      return true;
+      try {
+        const attempted = chess.move({ from, to, promotion });
+        if (!attempted) return false;
+        chess.undo();
+        return true;
+      } catch {
+        return false;
+      }
     },
     applyStandardMove(state, move, options) {
       const extended = state as ExtendedGameState;
@@ -295,48 +299,52 @@ export function createChessJsEngineAdapter(chess: Chess): ChessJsEngineAdapter {
       const fromSquare = posToAlgebraic(move.from);
       const toSquare = posToAlgebraic(move.to);
       const promotion = move.promotion ? promotionMap[move.promotion] : undefined;
-      const result = chessInstance.move({ from: fromSquare, to: toSquare, promotion, sloppy: true });
-      if (!result) {
+      try {
+        const result = chessInstance.move({ from: fromSquare, to: toSquare, promotion });
+        if (!result) {
+          throw new Error("Illegal move attempted in adapter");
+        }
+
+        if (!simulate) {
+          lastMoveResult = result;
+        }
+
+        const board = extended.board;
+        const movingSquare = board[move.from.y][move.from.x];
+        const targetSquare = board[move.to.y][move.to.x];
+        const movingPiece = movingSquare.piece;
+        if (!movingPiece) {
+          throw new Error("No piece found at source square");
+        }
+
+        let capturedPiece: Piece | undefined;
+
+        if (result.flags.includes("e")) {
+          const dir = movingPiece.color === "white" ? 1 : -1;
+          const capturePos = { x: move.to.x, y: move.to.y + dir };
+          capturedPiece = board[capturePos.y][capturePos.x].piece;
+          board[capturePos.y][capturePos.x].piece = undefined;
+        } else if (targetSquare.piece) {
+          capturedPiece = targetSquare.piece;
+        }
+
+        if (capturedPiece) {
+          extended.graveyard[capturedPiece.color].push({ ...capturedPiece });
+        }
+
+        movingSquare.piece = undefined;
+
+        if (result.promotion) {
+          movingPiece.type = (result.promotion === result.promotion.toLowerCase()
+            ? (Object.entries(pieceTypeToFen).find(([, v]) => v === result.promotion)?.[0] as PieceType)
+            : "queen") ?? "queen";
+          movingPiece.tags = {};
+        } else if (move.promotion) {
+          movingPiece.type = move.promotion;
+          movingPiece.tags = {};
+        }
+      } catch (error) {
         throw new Error("Illegal move attempted in adapter");
-      }
-
-      if (!simulate) {
-        lastMoveResult = result;
-      }
-
-      const board = extended.board;
-      const movingSquare = board[move.from.y][move.from.x];
-      const targetSquare = board[move.to.y][move.to.x];
-      const movingPiece = movingSquare.piece;
-      if (!movingPiece) {
-        throw new Error("No piece found at source square");
-      }
-
-      let capturedPiece: Piece | undefined;
-
-      if (result.flags.includes("e")) {
-        const dir = movingPiece.color === "white" ? 1 : -1;
-        const capturePos = { x: move.to.x, y: move.to.y + dir };
-        capturedPiece = board[capturePos.y][capturePos.x].piece;
-        board[capturePos.y][capturePos.x].piece = undefined;
-      } else if (targetSquare.piece) {
-        capturedPiece = targetSquare.piece;
-      }
-
-      if (capturedPiece) {
-        extended.graveyard[capturedPiece.color].push({ ...capturedPiece });
-      }
-
-      movingSquare.piece = undefined;
-
-      if (result.promotion) {
-        movingPiece.type = (result.promotion === result.promotion.toLowerCase()
-          ? (Object.entries(pieceTypeToFen).find(([, v]) => v === result.promotion)?.[0] as PieceType)
-          : "queen") ?? "queen";
-        movingPiece.tags = {};
-      } else if (move.promotion) {
-        movingPiece.type = move.promotion;
-        movingPiece.tags = {};
       }
 
       targetSquare.piece = movingPiece;

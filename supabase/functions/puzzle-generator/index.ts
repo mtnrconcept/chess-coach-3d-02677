@@ -113,9 +113,9 @@ function extractPatterns(raw: unknown): MovePattern[] {
       .map((entry) => {
         if (!entry || typeof entry !== 'object') return null;
         const id = 'id' in entry ? (entry.id as string) : undefined;
-        const severity = 'severity' in entry ? (entry.severity as PatternSeverity | undefined) : undefined;
+        const severity = 'severity' in entry ? (entry.severity as PatternSeverity) : undefined;
         if (!id) return null;
-        return { id, severity };
+        return { id, severity } as MovePattern;
       })
       .filter((entry): entry is MovePattern => entry !== null);
   }
@@ -187,7 +187,7 @@ serve(async (req) => {
 
     const supabase = buildSupabaseClient();
 
-    const { data: moves, error } = await supabase
+    const { data: movesData, error } = await supabase
       .from('moves')
       .select('id, fen_before, pv, best_move, patterns, tag, san, created_at')
       .in('tag', ['mistake', 'blunder'])
@@ -199,7 +199,19 @@ serve(async (req) => {
       throw error;
     }
 
-    const candidates = (moves ?? []).filter((move) => typeof move.fen_before === 'string' && move.fen_before.length > 0);
+    type MoveRow = {
+      id: string;
+      fen_before: string;
+      pv: string[];
+      best_move: string;
+      patterns: unknown;
+      tag: string;
+      san: string;
+      created_at: string;
+    };
+
+    const moves = (movesData as unknown as MoveRow[]) ?? [];
+    const candidates = moves.filter((move) => typeof move.fen_before === 'string' && move.fen_before.length > 0);
 
     if (candidates.length === 0) {
       return new Response(JSON.stringify({ processed: 0, inserted: 0 }), {
@@ -260,7 +272,7 @@ serve(async (req) => {
       });
     }
 
-    const { data: existing, error: existingError } = await supabase
+    const { data: existingData, error: existingError } = await supabase
       .from('puzzles')
       .select('fen')
       .in('fen', puzzles.map((puzzle) => puzzle.fen));
@@ -270,7 +282,9 @@ serve(async (req) => {
       throw existingError;
     }
 
-    const existingFens = new Set((existing ?? []).map((entry) => entry.fen));
+    type ExistingPuzzleRow = { fen: string };
+    const existing = (existingData as unknown as ExistingPuzzleRow[]) ?? [];
+    const existingFens = new Set(existing.map((entry) => entry.fen));
     const toInsert = puzzles.filter((puzzle) => !existingFens.has(puzzle.fen));
 
     if (toInsert.length === 0) {
