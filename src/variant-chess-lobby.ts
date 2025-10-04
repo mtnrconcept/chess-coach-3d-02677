@@ -183,6 +183,68 @@ function clone<T>(x: T): T { return JSON.parse(JSON.stringify(x)); }
 const externalRules = new Map<string, RulePlugin>();
 const externalRuleSources = new Map<string, string>();
 
+function stripSourceMappingDirectives(source: string): string {
+  return source.replace(/\s*\/\/\s*#\s*sourceMappingURL=.*$/gm, "");
+}
+
+function removeByteOrderMark(source: string): string {
+  if (source.charCodeAt(0) === 0xfeff) {
+    return source.slice(1);
+  }
+  return source;
+}
+
+function normaliseModuleSyntax(source: string): string {
+  let body = source;
+
+  body = body.replace(/\bexport\s+default\s+/g, "module.exports = ");
+  body = body.replace(/\bexport\s+(const|let|var)\s+/g, "$1 ");
+  body = body.replace(/\bexport\s+function\s+/g, "function ");
+  body = body.replace(/\bexport\s+class\s+/g, "class ");
+
+  body = body.replace(/export\s*{([^}]*)}\s*;?/g, (_full, inner: string) => {
+    const exportsList = inner
+      .split(",")
+      .map((part: string) => part.trim())
+      .filter(Boolean);
+
+    const statements: string[] = [];
+    for (const item of exportsList) {
+      const [identifier, maybeAlias] = item.split(/\s+as\s+/i).map((part) => part.trim());
+      if (!identifier) continue;
+      if (maybeAlias && maybeAlias === "default") {
+        statements.push(`module.exports = ${identifier};`);
+        continue;
+      }
+      // Les exports nommés ne sont pas utilisés par le moteur.
+      statements.push(`/* export ignoré: ${item} */`);
+    }
+    return statements.join("\n");
+  });
+
+  return body;
+}
+
+function prepareExternalRuleSource(raw: string): string {
+  const withoutBom = removeByteOrderMark(raw);
+  const withoutMaps = stripSourceMappingDirectives(withoutBom);
+  const normalised = normaliseModuleSyntax(withoutMaps);
+  return normalised.trim();
+}
+
+function buildFriendlyRegistrationError(error: unknown): string {
+  if (error instanceof Error) {
+    if (/Unexpected token '?(?:export|import)'?/i.test(error.message)) {
+      return "Le code de la variante utilise la syntaxe d'export/import ESModule. Retirez les mots-clés `export` et `import`.";
+    }
+    if (/Unexpected identifier/i.test(error.message) && /export\s+default/i.test(error.message)) {
+      return "Le code de la variante contient `export default`, non supporté dans le runtime embarqué.";
+    }
+    return error.message;
+  }
+  return "Erreur inconnue lors du chargement du code de variante.";
+}
+
 export interface ExternalRuleRegistrationResult {
   ok: boolean;
   reused?: boolean;
@@ -258,8 +320,18 @@ export function registerExternalRuleFromSource(ruleId: string, source: string): 
   }
 
   try {
-    const body = `"use strict";\n${source}\nreturn module.exports ?? exports.default ?? exports;`;
-    // eslint-disable-next-line no-new-func
+    const prepared = prepareExternalRuleSource(source);
+    if (prepared.length === 0) {
+      return { ok: false, error: 'Le code de la variante est vide.' };
+    }
+    if (/\bimport\s+[^;]+from\s+['"]/i.test(prepared) || /\bimport\s*\(/i.test(prepared)) {
+      return {
+        ok: false,
+        error: "Le code de la variante contient des instructions `import`. Elles ne sont pas supportées dans l'éditeur embarqué.",
+      };
+    }
+
+    const body = `"use strict";\n${prepared}\nreturn module.exports ?? exports.default ?? exports;`;
     const factory = new Function('exports', 'module', 'helpers', body);
     const exportsObj: Record<string, unknown> = {};
     const moduleObj: { exports: unknown } = { exports: exportsObj };
@@ -270,10 +342,10 @@ export function registerExternalRuleFromSource(ruleId: string, source: string): 
     externalRuleSources.set(ruleId, source);
     return { ok: true };
   } catch (error) {
-    console.error('Failed to register external rule', error);
+    console.error('Failed to register external rule', ruleId, error);
     return {
       ok: false,
-      error: error instanceof Error ? error.message : 'Erreur inconnue lors du chargement du code de variante.'
+      error: buildFriendlyRegistrationError(error),
     };
   }
 }
