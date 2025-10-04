@@ -1,0 +1,160 @@
+{
+  "meta": {
+    "id": "pion-invisible-5d9653a0",
+    "name": "Pion invisible",
+    "version": "1.0.0",
+    "base": "chess-base@1.0.0",
+    "authors": ["Raphaël Barman (Dartman)"],
+    "description": "Chaque joueur voit ses propres pions, mais ne voit pas les pions adverses (invisibles pour l’adversaire). Les règles d’échecs de base restent inchangées : coups légaux, échecs/échec et mat, promotions, prise en passant, roque, etc."
+  },
+  "capabilities": {
+    "requires": ["visibility-overrides", "select-ghost-square", "owner-aware-rendering"]
+  },
+  "ui": {
+    "badges": ["intermédiaire", "mindgame", "anticipation"],
+    "themeHints": {
+      "invisiblePieceOpacity": 0.0,
+      "ownerPawnOpacity": 1.0,
+      "ghostOwnerHoverOpacity": 0.25
+    },
+    "tips": [
+      "Les pions adverses sont invisibles pour vous : anticipez leurs trajectoires probables.",
+      "Vous pouvez sélectionner une case qui semble vide si VOTRE pion s’y trouve : il apparaîtra pour vous.",
+      "La prise en passant fonctionne normalement même si le pion cible est invisible pour vous."
+    ]
+  },
+  "parameters": {
+    "invisibleSides": {
+      "type": "enum",
+      "values": ["both", "whiteOnly", "blackOnly"],
+      "default": "both",
+      "description": "Détermine pour qui l’invisibilité s’applique. both = symétrique (recommandé)."
+    }
+  },
+  "overrides": {
+    "pieces": {
+      "pawn": {
+        "rules": "inherit",
+        "render": {
+          "ownerView": { "visible": true },
+          "opponentView": {
+            "visible": false,
+            "occupancyMask": "as-empty"
+          }
+        },
+        "selection": {
+          "owner": "normal",
+          "opponent": "blocked"
+        },
+        "hints": {
+          "owner": {
+            "showFrom": true,
+            "showTo": true
+          },
+          "opponent": {
+            "showFrom": false,
+            "showTo": false
+          }
+        }
+      }
+    }
+  },
+  "logic": {
+    "moveGeneration": "inherit-all",
+    "checkDetection": "inherit",
+    "endgame": "inherit",
+    "specialMoves": {
+      "enPassant": "inherit",
+      "castling": "inherit",
+      "promotion": {
+        "enabled": true,
+        "choices": ["queen", "rook", "bishop", "knight"],
+        "ui": { "ownerOnly": true }
+      }
+    }
+  },
+  "visibility": {
+    "mode": "piece-type",
+    "rules": [
+      {
+        "when": { "pieceType": "pawn" },
+        "apply": {
+          "whitePerspective": {
+            "showToOwner": true,
+            "showToOpponent": {
+              "if": { "paramEquals": ["invisibleSides", "blackOnly"] },
+              "then": true,
+              "else": false
+            }
+          },
+          "blackPerspective": {
+            "showToOwner": true,
+            "showToOpponent": {
+              "if": { "paramEquals": ["invisibleSides", "whiteOnly"] },
+              "then": true,
+              "else": false
+            }
+          },
+          "engineOccupancy": "always-occupied",
+          "opponentBoardMask": "as-empty"
+        }
+      }
+    ]
+  },
+  "input": {
+    "selectGhostSquares": {
+      "enabled": true,
+      "onlyFor": ["pawn"],
+      "ownerOnly": true,
+      "explain": "Permet de cliquer une case qui semble vide si un pion du propriétaire y est présent."
+    }
+  },
+  "arbiter": {
+    "uiDisclosure": {
+      "forbidden": ["opponentPieceHighlights", "opponentPawnMoves"],
+      "allowed": ["checkStatus", "mateStatus", "turnIndicator"]
+    },
+    "sanitization": {
+      "hideOpponentInvisiblePiecesInNotations": false,
+      "explain": "On conserve la notation complète (PGN/SAN) pour rester conforme au moteur et aux enregistrements."
+    }
+  },
+  "tests": [
+    {
+      "name": "Smoke – coups de base OK",
+      "fen": "startpos",
+      "script": [
+        { "move": "e2-e4", "by": "white" },
+        { "assert": "board.occupancy.e4 == pawn@white" },
+        { "move": "e7-e5", "by": "black" },
+        { "assert": "board.occupancy.e5 == pawn@black" }
+      ]
+    },
+    {
+      "name": "Capture diagonale invisible",
+      "fen": "rnbqkbnr/pppp1ppp/8/4p3/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2",
+      "script": [
+        { "desc": "Le pion d4 capture e5 même s’il peut être invisible selon la perspective" },
+        { "move": "d4xe5", "by": "white" },
+        { "assert": "board.occupancy.e5 == pawn@white" }
+      ]
+    },
+    {
+      "name": "Prise en passant invisible",
+      "fen": "rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq d6 0 3",
+      "script": [
+        { "move": "e2-e4", "by": "white" },
+        { "move": "d4xe3ep", "by": "black" },
+        { "assert": "board.occupancy.e3 == pawn@black" }
+      ]
+    },
+    {
+      "name": "Promotion OK",
+      "fen": "8/P7/8/8/8/8/7p/7K w - - 0 1",
+      "script": [
+        { "move": "a8=Q", "by": "white" },
+        { "assert": "board.occupancy.a8 == queen@white" }
+      ]
+    }
+  ]
+}
