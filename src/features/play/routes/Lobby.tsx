@@ -108,6 +108,21 @@ type VariantMetadata = {
   ruleSpec?: RuleSpec | null;
 };
 
+const variantSourceDisplayMap: Record<VariantRow['source'], { detail: string; list: string | null }> = {
+  builtin: { detail: "Catalogue", list: null },
+  generated: { detail: "IA", list: "IA" },
+  compiled: { detail: "CompileRuleset JSON", list: "JSON" },
+};
+
+const getVariantSourceDisplay = (
+  source: VariantRow['source'] | null | undefined,
+): { detail: string; list: string | null } => {
+  if (!source) {
+    return variantSourceDisplayMap.builtin;
+  }
+  return variantSourceDisplayMap[source];
+};
+
 const parseVariantMetadata = (metadata: unknown): VariantMetadata => {
   if (!metadata || typeof metadata !== "object") {
     return {};
@@ -291,7 +306,10 @@ export default function Lobby() {
     setVariantRuleErrors(errors);
   }, [remoteVariants]);
   const variantCount = variantRooms.length;
-  const isGeneratedVariant = selectedVariantData?.source === 'generated';
+  const selectedVariantSourceInfo = useMemo(
+    () => getVariantSourceDisplay(selectedVariantData?.source),
+    [selectedVariantData?.source],
+  );
   const isVariantLoading = variantQuery.isLoading && remoteVariants.length === 0;
 
   useEffect(() => {
@@ -830,6 +848,7 @@ export default function Lobby() {
                     <div className="p-2 space-y-2">
                       {variantRooms.map((room) => {
                         const isSelected = selectedVariant === room.id;
+                        const roomSourceInfo = getVariantSourceDisplay(room.source);
                         const createdLabel = room.createdAt
                           ? new Intl.DateTimeFormat("fr-FR", {
                               dateStyle: "medium",
@@ -852,9 +871,9 @@ export default function Lobby() {
                                 {room.title}
                               </span>
                               <div className="flex items-center gap-2">
-                                {room.source === 'generated' && (
+                                {roomSourceInfo.list && (
                                   <span className="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">
-                                    IA
+                                    {roomSourceInfo.list}
                                   </span>
                                 )}
                                 {isSelected && (
@@ -889,7 +908,7 @@ export default function Lobby() {
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span className="rounded-full border border-chess-gold/40 bg-background/70 px-3 py-1 font-semibold uppercase tracking-wide text-chess-gold">
-                            Source&nbsp;: {isGeneratedVariant ? 'IA' : 'Catalogue' }
+                            Source&nbsp;: {selectedVariantSourceInfo.detail}
                           </span>
                           <span className="rounded-full border border-border bg-background/70 px-3 py-1 font-medium">
                             {selectedVariantData.ruleId
