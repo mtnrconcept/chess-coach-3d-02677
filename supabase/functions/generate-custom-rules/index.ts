@@ -274,26 +274,68 @@ RÈGLES DÉTAILLÉES:\n${customRules}`;
 
         if (pluginResponse.ok) {
           const pluginData = await pluginResponse.json();
-          const generatedCode = pluginData.candidates?.[0]?.content?.parts
+          const rawCode = pluginData.candidates?.[0]?.content?.parts
             ?.map((part: { text?: string }) => part.text ?? '')
             .join('\n')
             .trim();
 
-          if (generatedCode) {
-            const sanitizedCode = generatedCode
-              .replace(/^```[a-zA-Z]*\n?/, '')
-              .replace(/\n?```$/, '')
-              .trim();
+          if (rawCode) {
+            const sanitizeGeneratedCode = (value: string) => {
+              const codeBlockMatch = value.match(/```(?:[a-zA-Z]+)?\n([\s\S]*?)```/);
+              const trimmed = codeBlockMatch ? codeBlockMatch[1] : value;
+              return trimmed
+                .replace(/^export\s+default\s+/m, 'module.exports = ')
+                .trim();
+            };
 
-            const referencesRuleId =
-              sanitizedCode.includes(ruleId) || sanitizedCode.includes('helpers.ruleId');
-            const exportsModule = /module\.exports\s*=/.test(sanitizedCode);
+            let sanitizedCode = sanitizeGeneratedCode(rawCode);
 
-            if (referencesRuleId && exportsModule) {
-              pluginCode = sanitizedCode;
-            } else {
-              pluginWarning =
-                'Le code généré ne contient pas les références attendues. Utilisation d’un squelette de règle.';
+            if (!/module\.exports\s*=/.test(sanitizedCode)) {
+              // Some generations return an object literal directly. Wrap it into a rule variable.
+              const directObjectExport = sanitizedCode.match(/^{[\s\S]*}$/);
+              if (directObjectExport) {
+                sanitizedCode = `const rule = ${sanitizedCode}\n\nmodule.exports = rule;`;
+              } else {
+                pluginWarning =
+                  'Le code généré ne respecte pas le format attendu. Utilisation d’un squelette de règle.';
+              }
+            }
+
+            if (!pluginWarning) {
+              const ensureRuleId = (source: string) => {
+                if (source.includes(ruleId) || source.includes('helpers.ruleId')) {
+                  return source;
+                }
+
+                const idPropertyRegex = /(id\s*:\s*)(['"])(.*?)\2/;
+                if (idPropertyRegex.test(source)) {
+                  return source.replace(idPropertyRegex, `$1'${ruleId}'`);
+                }
+
+                if (/const\s+rule\s*=\s*{/.test(source)) {
+                  return source.replace(
+                    /const\s+rule\s*=\s*{/,
+                    `const rule = {\n  id: '${ruleId}',`
+                  );
+                }
+
+                if (/module\.exports\s*=\s*{/.test(source)) {
+                  return source.replace(
+                    /module\.exports\s*=\s*{/,
+                    `const rule = {\n  id: '${ruleId}',`
+                  ).concat('\n\nmodule.exports = rule;');
+                }
+
+                return `const rule = ${source.startsWith('module.exports') ? source.replace(/module\.exports\s*=\s*/, '') : source}\n\nrule.id = '${ruleId}';\nmodule.exports = rule;`;
+              };
+
+              sanitizedCode = ensureRuleId(sanitizedCode);
+
+              if (!/module\.exports\s*=/.test(sanitizedCode)) {
+                sanitizedCode += `\n\nmodule.exports = rule;`;
+              }
+
+              pluginCode = sanitizedCode.trim();
             }
           } else {
             pluginWarning = 'La génération du code automatique a échoué. Utilisation d’un squelette de règle.';
