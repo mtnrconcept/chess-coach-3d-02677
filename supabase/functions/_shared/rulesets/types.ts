@@ -1,7 +1,14 @@
 export type MovePattern =
   | { pattern: "rook" | "bishop" | "queen" | "knight" | "king" | "pawn"; repeat?: number }
   | { action: "carry"; who: "pawn" | "any"; range: number; constraints?: string[] }
-  | { action: "dash"; max: number; requires?: string[] };
+  | { action: "dash"; max: number; requires?: string[] }
+  | {
+      type: "move" | "capture";
+      vectorsWhite: Array<[number, number]>;
+      vectorsBlack: Array<[number, number]>;
+      maxSteps?: number;
+      requires?: string[];
+    };
 
 export interface PieceSpec {
   id: string;
@@ -9,6 +16,7 @@ export interface PieceSpec {
   side?: "white" | "black" | "both";
   moves: MovePattern[];
   spawn?: { promotesFrom?: string | null; count?: number; startSquares?: string[] };
+  attributes?: Record<string, unknown>;
 }
 
 export interface EffectSpec {
@@ -41,6 +49,8 @@ export interface RuleTestStep {
   piece?: string;
   side?: string;
   value?: unknown;
+  illegal?: string;
+  negate?: boolean;
 }
 
 export interface RuleTest {
