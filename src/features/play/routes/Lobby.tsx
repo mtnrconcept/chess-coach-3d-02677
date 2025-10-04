@@ -488,16 +488,24 @@ export default function Lobby() {
 
     const levelLabel = lobby.elo_level ?? "Libre";
 
+    const timeControlState = {
+      name: timeLabel,
+      time: lobby.time_control,
+      minutes: lobby.minutes,
+      increment: lobby.increment,
+      description: "Partie depuis le lobby",
+    } as const;
+
+    const eloLevelState = {
+      name: levelLabel,
+      elo: levelLabel,
+      color: "bg-blue-500",
+    } as const;
+
     navigate("/game", {
       state: {
-        timeControl: {
-          name: timeLabel,
-          time: lobby.time_control,
-          minutes: lobby.minutes,
-          increment: lobby.increment,
-          description: "Partie depuis le lobby",
-        },
-        eloLevel: { name: levelLabel, elo: levelLabel, color: "bg-blue-500" },
+        timeControl: { ...timeControlState },
+        eloLevel: { ...eloLevelState },
         coachingMode: lobby.coaching_mode,
         lobbyId: lobby.id,
         hostName: lobby.host_name,
@@ -914,19 +922,40 @@ export default function Lobby() {
                             className="hover-lift"
                             variant="chess"
                             onClick={() => {
+                              const variantTimeControl = {
+                                name: selectedTimeConfig.label,
+                                time: selectedTimeConfig.id,
+                                minutes: selectedTimeConfig.minutes,
+                                increment: selectedTimeConfig.increment,
+                                description: "Partie avec variante",
+                              } as const;
+
+                              const variantEloLevel = {
+                                name: selectedEloConfig.label,
+                                elo: selectedEloConfig.label,
+                                color: "bg-blue-500",
+                              } as const;
+
+                              const variantState = selectedVariantData
+                                ? {
+                                    id: selectedVariantData.id,
+                                    title: selectedVariantData.title,
+                                    ruleId: selectedVariantData.ruleId,
+                                    description: selectedVariantData.description,
+                                    rules: selectedVariantData.rules,
+                                    source: selectedVariantData.source ?? undefined,
+                                    difficulty: selectedVariantData.difficulty ?? undefined,
+                                    prompt: selectedVariantData.prompt ?? undefined,
+                                  }
+                                : null;
+
                               navigate("/game", {
                                 state: {
-                                  timeControl: {
-                                    name: selectedTimeConfig.label,
-                                    time: selectedTimeConfig.id,
-                                    minutes: selectedTimeConfig.minutes,
-                                    increment: selectedTimeConfig.increment,
-                                    description: "Partie avec variante",
-                                  },
-                                  eloLevel: { name: selectedEloConfig.label, elo: selectedEloConfig.label, color: "bg-blue-500" },
+                                  timeControl: { ...variantTimeControl },
+                                  eloLevel: { ...variantEloLevel },
                                   coachingMode: false,
                                   gameMode: gameMode,
-                                  variant: selectedVariantData,
+                                  variant: variantState,
                                 },
                               });
                             }}
