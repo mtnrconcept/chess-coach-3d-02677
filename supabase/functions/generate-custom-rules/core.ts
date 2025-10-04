@@ -16,7 +16,6 @@ export interface CustomRulesResponse {
   ruleName: string;
   pluginCode: string;
   warning?: string;
-  pluginWarning?: string;
   compiledRuleset: CompiledRuleset;
   compiledHash: string;
   ruleSpec: RuleSpec;
@@ -58,8 +57,6 @@ const endgameChallenges: Record<DifficultyLevel, string> = {
   advanced:
     "remporter la partie après avoir exécuté une combinaison tactique impliquant au moins trois pièces différentes",
 };
-
-const pluginWarningMessage = "Les plugins JavaScript sont dépréciés. Utilisez le CompiledRuleset JSON.";
 
 const buildFallbackRuleSpec = (
   description: string,
@@ -309,7 +306,6 @@ export async function generateCustomRules(
     ruleName: ruleSpec.meta.name ?? suggestedRuleName,
     pluginCode: "",
     warning,
-    pluginWarning: pluginWarningMessage,
     compiledRuleset,
     compiledHash,
     ruleSpec,
