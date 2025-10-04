@@ -1084,6 +1084,144 @@ const RuleBishopHealer: RulePlugin = {
 };
 
 /** 18) Pion Shuriken : à la place de capturer en avançant, peut éliminer une pièce diagonale adjacente sans bouger. */
+function collectStandardDestinations(state: GameState, pos: Pos, piece: Piece, api: EngineApi): Pos[] {
+  const res: Pos[] = [];
+  switch (piece.type) {
+    case 'pawn': {
+      const forward = piece.color === 'white' ? -1 : 1;
+      const one = { x: pos.x, y: pos.y + forward };
+      if (api.inBounds(one) && !api.getPieceAt(state, one)) {
+        res.push(clone(one));
+        const startRank = piece.color === 'white' ? 6 : 1;
+        const two = { x: pos.x, y: pos.y + 2 * forward };
+        if (
+          pos.y === startRank &&
+          api.inBounds(two) &&
+          !api.getPieceAt(state, two) &&
+          !api.getPieceAt(state, one)
+        ) {
+          res.push(clone(two));
+        }
+      }
+      for (const dx of [-1, 1]) {
+        const diag = { x: pos.x + dx, y: pos.y + forward };
+        if (!api.inBounds(diag)) continue;
+        const target = api.getPieceAt(state, diag);
+        if (target && target.color !== piece.color) {
+          res.push(clone(diag));
+        }
+      }
+      break;
+    }
+    case 'knight': {
+      const jumps = [
+        { x: 1, y: 2 },
+        { x: 2, y: 1 },
+        { x: -1, y: 2 },
+        { x: -2, y: 1 },
+        { x: 1, y: -2 },
+        { x: 2, y: -1 },
+        { x: -1, y: -2 },
+        { x: -2, y: -1 },
+      ];
+      for (const d of jumps) {
+        const to = { x: pos.x + d.x, y: pos.y + d.y };
+        if (!api.inBounds(to)) continue;
+        const target = api.getPieceAt(state, to);
+        if (!target || target.color !== piece.color) {
+          res.push(clone(to));
+        }
+      }
+      break;
+    }
+    case 'bishop': {
+      for (const dir of dirsBishop) {
+        let cur = { x: pos.x + dir.x, y: pos.y + dir.y };
+        while (api.inBounds(cur)) {
+          const target = api.getPieceAt(state, cur);
+          if (target && target.color === piece.color) break;
+          res.push(clone(cur));
+          if (target) break;
+          cur = { x: cur.x + dir.x, y: cur.y + dir.y };
+        }
+      }
+      break;
+    }
+    case 'rook': {
+      for (const dir of dirsRook) {
+        let cur = { x: pos.x + dir.x, y: pos.y + dir.y };
+        while (api.inBounds(cur)) {
+          const target = api.getPieceAt(state, cur);
+          if (target && target.color === piece.color) break;
+          res.push(clone(cur));
+          if (target) break;
+          cur = { x: cur.x + dir.x, y: cur.y + dir.y };
+        }
+      }
+      break;
+    }
+    case 'queen': {
+      const dirs = [...dirsBishop, ...dirsRook];
+      for (const dir of dirs) {
+        let cur = { x: pos.x + dir.x, y: pos.y + dir.y };
+        while (api.inBounds(cur)) {
+          const target = api.getPieceAt(state, cur);
+          if (target && target.color === piece.color) break;
+          res.push(clone(cur));
+          if (target) break;
+          cur = { x: cur.x + dir.x, y: cur.y + dir.y };
+        }
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  return res;
+}
+
+function generateMasteryRepeatMoves(state: GameState, pos: Pos, piece: Piece, api: EngineApi): Move[] {
+  const baseTargets = collectStandardDestinations(state, pos, piece, api);
+  const moves: Move[] = [];
+  for (const mid of baseTargets) {
+    const step = { x: mid.x - pos.x, y: mid.y - pos.y };
+    if (step.x === 0 && step.y === 0) continue;
+    const final = { x: mid.x + step.x, y: mid.y + step.y };
+    if (!api.inBounds(final)) continue;
+    const landing = api.getPieceAt(state, final);
+    if (landing && landing.color === piece.color) continue;
+    if (piece.type === 'pawn') {
+      const lastRank = piece.color === 'white' ? 0 : 7;
+      if (mid.y === lastRank || final.y === lastRank) continue;
+    }
+
+    const afterFirst = api.cloneState(state);
+    try {
+      api.applyStandardMove(afterFirst, { from: clone(pos), to: clone(mid) }, { simulate: true });
+    } catch {
+      continue;
+    }
+    afterFirst.turn = piece.color;
+    try {
+      api.applyStandardMove(afterFirst, { from: clone(mid), to: clone(final) }, { simulate: true });
+    } catch {
+      continue;
+    }
+
+    moves.push({
+      from: clone(pos),
+      to: clone(final),
+      meta: {
+        special: 'mastery_repeat',
+        masteryStep: clone(step),
+        intermediate: clone(mid),
+        pieceId: piece.id,
+      },
+    });
+  }
+  return moves;
+}
+
 const RulePawnShuriken: RulePlugin = {
   id: 'pawn-shuriken',
   name: 'Pion Shuriken',
@@ -1115,6 +1253,157 @@ const RulePawnShuriken: RulePlugin = {
       }
     };
   }
+};
+
+const RuleJumpingPawns: RulePlugin = {
+  id: 'jumping-pawns',
+  name: 'Pion qui sautent',
+  description:
+    'Chaque pion peut une fois sauter de deux cases en ignorant l’obstacle direct. Une pièce non royale obtient un mouvement de maîtrise unique : rejouer la même trajectoire immédiatement ou se fortifier pour bloquer une capture.',
+  onGenerateExtraMoves(state, pos, piece, api) {
+    const extras: Move[] = [];
+
+    if (piece.type === 'pawn') {
+      const usedKey = `${piece.id}_jump_used`;
+      if (!state.flags[piece.color][usedKey]) {
+        const dir = piece.color === 'white' ? -1 : 1;
+        const landing = { x: pos.x, y: pos.y + 2 * dir };
+        if (api.inBounds(landing)) {
+          const target = api.getPieceAt(state, landing);
+          if (!target || target.color !== piece.color) {
+            extras.push({
+              from: clone(pos),
+              to: clone(landing),
+              meta: { special: 'jumping_pawn', usedKey },
+            });
+          }
+        }
+      }
+    }
+
+    if (piece.type !== 'king') {
+      const masteryUsed = Boolean(state.flags[piece.color].mastery_used);
+      if (!masteryUsed) {
+        extras.push({ from: clone(pos), to: clone(pos), meta: { special: 'mastery_block' } });
+        extras.push(...generateMasteryRepeatMoves(state, pos, piece, api));
+      }
+    }
+
+    return extras;
+  },
+  onBeforeMoveApply(state, move, api) {
+    if (move.meta?.special === 'jumping_pawn') {
+      const pawn = api.getPieceAt(state, move.from);
+      if (!pawn || pawn.type !== 'pawn') return { allow: false };
+      const dir = pawn.color === 'white' ? -1 : 1;
+      const expected = { x: move.from.x, y: move.from.y + 2 * dir };
+      if (!eqPos(move.to, expected)) return { allow: false };
+      const dest = api.getPieceAt(state, move.to);
+      if (dest && dest.color === pawn.color) return { allow: false };
+      const usedKey = (move.meta.usedKey as string) || `${pawn.id}_jump_used`;
+      if (state.flags[pawn.color][usedKey]) return { allow: false };
+      return {
+        allow: true,
+        transform: (s) => {
+          const currentPawn = api.getPieceAt(s, move.from);
+          if (!currentPawn) return;
+          const capture = api.getPieceAt(s, move.to);
+          if (capture && capture.color !== currentPawn.color) {
+            s.graveyard[capture.color].push({ ...capture });
+          }
+          api.setPieceAt(s, move.from, undefined);
+          api.setPieceAt(s, move.to, { ...currentPawn });
+          state.flags[currentPawn.color][usedKey] = true;
+          s.flags[currentPawn.color][usedKey] = true;
+        },
+      };
+    }
+
+    if (move.meta?.special === 'mastery_repeat') {
+      const origin = api.getPieceAt(state, move.from);
+      if (!origin || origin.type === 'king') return { allow: false };
+      if (state.flags[origin.color].mastery_used) return { allow: false };
+      const step = move.meta.masteryStep as Pos | undefined;
+      const intermediate = move.meta.intermediate as Pos | undefined;
+      const taggedId = move.meta.pieceId as string | undefined;
+      if (!step || !intermediate || taggedId !== origin.id) return { allow: false };
+      const expectedMid = { x: move.from.x + step.x, y: move.from.y + step.y };
+      const expectedFinal = { x: intermediate.x + step.x, y: intermediate.y + step.y };
+      if (!eqPos(intermediate, expectedMid) || !eqPos(move.to, expectedFinal)) {
+        return { allow: false };
+      }
+
+      const simulation = api.cloneState(state);
+      try {
+        api.applyStandardMove(simulation, { from: clone(move.from), to: clone(intermediate) }, { simulate: true });
+      } catch {
+        return { allow: false };
+      }
+      simulation.turn = origin.color;
+      try {
+        api.applyStandardMove(simulation, { from: clone(intermediate), to: clone(move.to) }, { simulate: true });
+      } catch {
+        return { allow: false };
+      }
+
+      return {
+        allow: true,
+        transform: (s) => {
+          api.applyStandardMove(s, { from: clone(move.from), to: clone(intermediate) });
+          s.turn = origin.color;
+          api.applyStandardMove(s, { from: clone(intermediate), to: clone(move.to) });
+          state.flags[origin.color].mastery_used = true;
+          state.flags[origin.color].mastery_piece_id = origin.id;
+          s.flags[origin.color].mastery_used = true;
+          s.flags[origin.color].mastery_piece_id = origin.id;
+        },
+      };
+    }
+
+    if (move.meta?.special === 'mastery_block') {
+      const origin = api.getPieceAt(state, move.from);
+      if (!origin || origin.type === 'king') return { allow: false };
+      if (!eqPos(move.from, move.to)) return { allow: false };
+      if (state.flags[origin.color].mastery_used) return { allow: false };
+      return {
+        allow: true,
+        transform: (s) => {
+          const piece = api.getPieceAt(s, move.from);
+          if (!piece) return;
+          piece.tags = { ...(piece.tags || {}), masteryShield: 2 };
+          state.flags[origin.color].mastery_used = true;
+          state.flags[origin.color].mastery_piece_id = origin.id;
+          s.flags[origin.color].mastery_used = true;
+          s.flags[origin.color].mastery_piece_id = origin.id;
+        },
+      };
+    }
+
+    const target = api.getPieceAt(state, move.to);
+    if (target?.tags?.masteryShield && target.color !== state.turn) {
+      return { allow: false, reason: 'Pièce protégée par un mouvement de maîtrise.' };
+    }
+
+    return { allow: true };
+  },
+  onTurnStart(state, api) {
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        const pos = { x, y };
+        const piece = api.getPieceAt(state, pos);
+        if (!piece?.tags?.masteryShield) continue;
+        const remaining = (piece.tags.masteryShield as number) - 1;
+        if (remaining > 0) {
+          piece.tags.masteryShield = remaining;
+        } else {
+          delete piece.tags.masteryShield;
+          if (piece.tags && Object.keys(piece.tags).length === 0) {
+            delete piece.tags;
+          }
+        }
+      }
+    }
+  },
 };
 
 /** 19) Reine Divisée : une fois par partie, se scinde en 2 tours OU 2 fous sur cases adjacentes libres. */
@@ -1487,6 +1776,7 @@ export const ALL_RULES: RulePlugin[] = [
   RuleRookMagnet,
   RuleBishopHealer,
   RulePawnShuriken,
+  RuleJumpingPawns,
   RuleQueenSplit,
   RuleRookFortress,
   RuleDragonKnight,
