@@ -13,82 +13,222 @@ interface GenerateRequest {
   difficulty?: 'beginner' | 'intermediate' | 'advanced';
 }
 
-const RULES_SYSTEM_PROMPT = `Tu es un expert en game design d'échecs et en création de variantes d'échecs.
+const VARIANT_SPEC_SYSTEM_PROMPT = `Tu es un générateur de variantes d'échecs pour la plateforme Chess Coach 3D.
 
-Ton rôle est de créer des règles de variantes d'échecs équilibrées, créatives et adaptées au niveau demandé.
-
-Directives:
-- Pour niveau débutant: règles simples, peu de nouvelles mécaniques
-- Pour niveau intermédiaire: règles avec quelques mécaniques originales mais compréhensibles
-- Pour niveau avancé: règles complexes, tactiques profondes, mécaniques sophistiquées
-
-Génère une description détaillée en français incluant:
-1. Nom de la variante
-2. Objectif du jeu
-3. Placement initial des pièces (si différent)
-4. Règles de mouvement spéciales
-5. Conditions de victoire/défaite
-6. Règles spéciales (captures, promotions, etc.)
-
-Sois créatif mais équilibré. Les règles doivent être jouables et intéressantes.`;
-
-const CODE_SYSTEM_PROMPT = `Tu es un expert en TypeScript/JavaScript et en programmation d'échecs avec chess.js.
-
-Ton rôle est de générer du code JavaScript modulaire CommonJS pour automatiser les règles d'une variante d'échecs.
-
-CRITICAL - Structure du code:
-- Exporter un objet avec la structure suivante:
-  {
-    validateMove(game, move): boolean - Valide si un coup est légal selon les règles
-    getValidMoves(game, square?): string[] - Retourne les coups valides
-    isGameOver(game): boolean - Vérifie si la partie est terminée
-    getGameResult(game): 'white' | 'black' | 'draw' | null - Retourne le résultat
-    modifyPosition?(game): void - Optionnel: modifie la position initiale
+Ta mission est de produire un JSON de configuration complet pour un plugin de variante basé sur la structure suivante:
+{
+  "meta": {
+    "id": string (kebab-case, unique),
+    "name": string,
+    "version": string,
+    "base": "chess-base@1.0.0",
+    "description": string
+  },
+  "capabilities": { "requires": string[] },
+  "parameters"?: Record<string, {
+    "type": "boolean" | "number" | "string",
+    "default": unknown,
+    "description": string
+  }>,
+  "ui": {
+    "badges": string[],
+    "tips": string[],
+    "themeHints"?: Record<string, unknown>
+  },
+  "overrides": Record<string, unknown>,
+  "objects"?: Record<string, unknown>,
+  "logic": {
+    "moveGeneration": string,
+    "specialMoves"?: Record<string, string>,
+    "checkDetection": string,
+    "endgame": string
+  },
+  "arbiter": {
+    "uiDisclosure"?: { "forbidden"?: string[], "allowed"?: string[] },
+    "notation"?: { "pgn"?: { "includeHiddenEvents"?: boolean } }
   }
+}
 
-CRITICAL - chess.js API moderne:
-- Utilise game.moves() pour les coups valides (retourne string[])
-- Utilise game.history() pour l'historique
-- Utilise game.fen() pour la position FEN
-- Utilise game.isGameOver() pour vérifier la fin
-- Utilise game.move(move) pour jouer un coup
-- JAMAIS de {sloppy: true}, cette option n'existe plus
-- JAMAIS de load_pgn(), utilise loadPgn()
+Règles impératives:
+- Toujours répondre uniquement par un JSON valide, sans balise Markdown.
+- Réutiliser le modèle de logique fourni dans l'exemple "Pion dépose une mine" pour définir les actions spéciales, objets cachés, triggers, etc.
+- Adapter chaque section pour refléter fidèlement le prompt utilisateur (nom, description, badges, capabilities, overrides, objets, triggers).
+- Lorsque le prompt mentionne des effets spéciaux, utilise les clés "specialActions", "hidden objects", "triggers", etc. comme dans l'exemple.
+- S'il n'y a pas d'effets spéciaux, garde les sections pertinentes mais avec des valeurs neutres (par exemple pas d'"objects").
+- Toujours renseigner meta.base = "chess-base@1.0.0" et meta.version = "1.0.0" si aucune version n'est fournie.
+- Génère un identifiant stable en slugifiant le nom ou le prompt, et ajoute un suffixe aléatoire court pour l'unicité.
+- Décris précisément l'expérience utilisateur dans ui.tips et ui.themeHints.
+- Utilise des champs cohérents pour les overrides (ex: pieces, board, events) et assure-toi que les drapeaux d'état nécessaires sont définis.
+- Ajoute les capabilities requises en fonction des mécaniques (ex: hidden-objects, trigger-events, owner-aware-rendering).
+- Mentionne au moins trois badges décrivant la variante.
 
-Exemple de structure:
-\`\`\`javascript
-module.exports = {
-  validateMove(game, move) {
-    const validMoves = this.getValidMoves(game);
-    return validMoves.includes(move.san || move);
+Voici un exemple détaillé à suivre lorsque le prompt est « les pions peuvent déposer une mine »:
+{
+  "meta": {
+    "id": "pion-depose-une-mine-9835ec72",
+    "name": "Pion dépose une mine",
+    "version": "1.0.1",
+    "base": "chess-base@1.0.0",
+    "description": "Chaque pion peut, une seule fois, déposer une mine sur la case qu’il vient de quitter. La mine est invisible pour l’adversaire et détruit toute pièce entrant sur la case."
   },
-  
-  getValidMoves(game, square) {
-    const moves = game.moves({ verbose: true });
-    if (square) {
-      return moves
-        .filter(m => m.from === square)
-        .map(m => m.san);
+  "capabilities": { "requires": ["special-actions", "hidden-objects", "trigger-events", "owner-aware-rendering"] },
+  "parameters": {
+    "allowAllyExplosion": {
+      "type": "boolean", "default": true,
+      "description": "Si vrai, vos propres pièces peuvent aussi exploser en entrant sur vos mines."
     }
-    return moves.map(m => m.san);
   },
-  
-  isGameOver(game) {
-    return game.isGameOver();
-  },
-  
-  getGameResult(game) {
-    if (!this.isGameOver(game)) return null;
-    if (game.isCheckmate()) {
-      return game.turn() === 'w' ? 'black' : 'white';
+  "ui": {
+    "badges": ["intermédiaire", "piège", "explosif"],
+    "tips": [
+      "Après avoir déplacé un pion, tu peux déposer une mine sur la case quittée (une fois par pion).",
+      "La mine est invisible pour l’adversaire.",
+      "Toute pièce qui marche sur une mine est détruite immédiatement; la mine disparaît."
+    ],
+    "themeHints": {
+      "mineIcon": "💣",
+      "mineOwnerVisibility": true,
+      "mineOpponentVisibility": false,
+      "explosionEffect": "particles-explosion",
+      "explosionSound": "sfx-explosion-soft"
     }
-    return 'draw';
+  },
+  "overrides": {
+    "pieces": {
+      "pawn": {
+        "rules": "inherit",
+        "state": { "flags": { "usedMine": false } },
+        "specialActions": [
+          {
+            "id": "drop-mine",
+            "name": "Déposer une mine",
+            "trigger": "after-move",
+            "consumesTurn": false,
+            "conditions": [
+              { "notFlag": { "piece": "self", "flag": "usedMine" } },
+              { "squareExists": "previousSquare" }
+            ],
+            "effect": [
+              { "placeHiddenObject": { "type": "mine", "at": "previousSquare", "owner": "same" } },
+              { "setFlag": { "piece": "self", "flag": "usedMine", "value": true } }
+            ],
+            "ui": {
+              "prompt": "Déposer une mine sur la case quittée ? (une fois par pion)",
+              "confirmLabel": "Déposer la mine",
+              "cancelLabel": "Ne pas déposer"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "objects": {
+    "mine": {
+      "type": "hidden",
+      "ownerVisibility": true,
+      "opponentVisibility": false,
+      "render": { "ownerView": { "icon": "mineIcon", "opacity": 0.9 }, "opponentView": { "visible": false } },
+      "triggers": [
+        {
+          "on": "enter-square",
+          "conditions": [
+            { "any": [ { "paramEquals": ["allowAllyExplosion", true] }, { "pieceOwner": "opponent-of-object-owner" } ] }
+          ],
+          "actions": [
+            { "playEffect": "explosionEffect" },
+            { "playSound": "explosionSound" },
+            { "destroy": "enteringPiece" },
+            { "remove": "self" }
+          ]
+        }
+      ]
+    }
+  },
+  "logic": {
+    "moveGeneration": "inherit-all",
+    "specialMoves": { "enPassant": "inherit", "castling": "inherit", "promotion": "inherit" },
+    "checkDetection": "inherit",
+    "endgame": "inherit"
+  },
+  "arbiter": {
+    "uiDisclosure": {
+      "forbidden": ["opponentMines", "opponentMineHints"],
+      "allowed": ["checkStatus", "mateStatus", "turnIndicator"]
+    },
+    "notation": { "pgn": { "includeHiddenEvents": false } }
   }
+}
+
+Adapte-toi à tous les prompts, y compris ceux qui modifient d'autres pièces, le plateau, des événements aléatoires ou des règles d'équipe.`;
+
+const slugify = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+
+const parseJsonLike = (value: string): unknown => {
+  const trimmed = value.trim();
+  const codeBlockMatch = trimmed.match(/```(?:json)?\n([\s\S]*?)```/i);
+  const jsonText = codeBlockMatch ? codeBlockMatch[1] : trimmed;
+  return JSON.parse(jsonText);
 };
-\`\`\`
 
-Génère un code propre, bien commenté, avec gestion d'erreurs robuste.
-IMPORTANT: Le code doit être du JavaScript CommonJS pur (module.exports), PAS de TypeScript, PAS d'import ES6.`;
+const difficultyBadgeMap: Record<NonNullable<GenerateRequest['difficulty']>, string> = {
+  beginner: 'débutant',
+  intermediate: 'intermédiaire',
+  advanced: 'avancé',
+};
+
+const buildFallbackSpec = (description: string, difficulty: GenerateRequest['difficulty']) => {
+  const baseLine = description.trim().split(/\n+/)[0] || 'Variante personnalisée';
+  const slug = slugify(baseLine) || 'variante-personnalisee';
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const metaName = baseLine.length > 0 ? baseLine : 'Variante personnalisée';
+  const badgeDifficulty = difficultyBadgeMap[difficulty ?? 'intermediate'];
+
+  const spec = {
+    meta: {
+      id: `${slug}-${suffix}`,
+      name: metaName,
+      version: '1.0.0',
+      base: 'chess-base@1.0.0',
+      description: `Variante générée hors-ligne basée sur le prompt: ${description.trim()}`,
+    },
+    capabilities: { requires: ['special-actions'] },
+    parameters: {},
+    ui: {
+      badges: ['personnalisée', badgeDifficulty, 'classique'],
+      tips: [
+        'Variante générée en mode secours.',
+        'Utilise les règles standard des échecs.',
+        'Ajoute tes propres effets spéciaux lorsque la génération IA sera disponible.',
+      ],
+      themeHints: {
+        highlightColor: difficulty === 'advanced' ? '#ff6b6b' : '#4dabf7',
+        fallback: true,
+      },
+    },
+    overrides: {},
+    logic: {
+      moveGeneration: 'inherit-all',
+      specialMoves: { enPassant: 'inherit', castling: 'inherit', promotion: 'inherit' },
+      checkDetection: 'inherit',
+      endgame: 'inherit',
+    },
+    arbiter: {
+      uiDisclosure: {
+        allowed: ['checkStatus', 'mateStatus', 'turnIndicator'],
+      },
+      notation: { pgn: { includeHiddenEvents: false } },
+    },
+  };
+
+  return JSON.stringify(spec, null, 2);
+};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -101,11 +241,10 @@ serve(async (req) => {
     }
 
     const { description, difficulty = 'intermediate' } = await req.json() as GenerateRequest;
-    
-    console.log(`[generate-chess-variant-code] Generating rules for: ${description} (${difficulty})`);
 
-    // Étape 1: Générer les règles détaillées
-    const rulesResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    console.log(`[generate-chess-variant-code] Generating plugin spec for: ${description} (${difficulty})`);
+
+    const generationResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${LOVABLE_API_KEY}`,
@@ -114,83 +253,60 @@ serve(async (req) => {
       body: JSON.stringify({
         model: 'google/gemini-2.5-pro',
         messages: [
-          { role: 'system', content: RULES_SYSTEM_PROMPT },
-          { 
-            role: 'user', 
-            content: `Crée une variante d'échecs ${difficulty} basée sur: ${description}\n\nGénère une description détaillée et complète des règles.` 
-          },
-        ],
-        max_completion_tokens: 2000,
-      }),
-    });
-
-    if (!rulesResponse.ok) {
-      const errorText = await rulesResponse.text();
-      console.error('[generate-chess-variant-code] Rules generation error:', rulesResponse.status, errorText);
-      
-      if (rulesResponse.status === 429) {
-        return new Response(JSON.stringify({ 
-          error: 'Rate limit atteinte. Veuillez réessayer dans quelques instants.' 
-        }), {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
-      if (rulesResponse.status === 402) {
-        return new Response(JSON.stringify({ 
-          error: 'Crédits insuffisants. Veuillez ajouter des crédits à votre workspace Lovable AI.' 
-        }), {
-          status: 402,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
-      throw new Error(`AI Gateway error: ${rulesResponse.status}`);
-    }
-
-    const rulesData = await rulesResponse.json();
-    const rules = rulesData.choices?.[0]?.message?.content || '';
-    
-    console.log('[generate-chess-variant-code] Rules generated, now generating code...');
-
-    // Étape 2: Générer le code d'automatisation
-    const codeResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-pro',
-        messages: [
-          { role: 'system', content: CODE_SYSTEM_PROMPT },
-          { 
-            role: 'user', 
-            content: `Génère le code JavaScript CommonJS (module.exports) pour automatiser cette variante d'échecs:\n\n${rules}\n\nDescription originale: ${description}\n\nLe code doit:\n1. Exporter un objet avec validateMove, getValidMoves, isGameOver, getGameResult\n2. Utiliser l'API moderne de chess.js (pas de sloppy, pas de load_pgn)\n3. Être du JavaScript CommonJS pur (module.exports)\n4. Inclure des commentaires explicatifs\n5. Gérer les erreurs proprement\n\nRETOURNE UNIQUEMENT LE CODE JAVASCRIPT, sans markdown, sans explications.` 
+          { role: 'system', content: VARIANT_SPEC_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: `Prompt utilisateur: ${description}\nNiveau cible: ${difficulty}.\nGénère le JSON complet du plugin en respectant strictement la structure indiquée.`
           },
         ],
         max_completion_tokens: 3000,
       }),
     });
 
-    if (!codeResponse.ok) {
-      const errorText = await codeResponse.text();
-      console.error('[generate-chess-variant-code] Code generation error:', codeResponse.status, errorText);
-      throw new Error(`AI Gateway error: ${codeResponse.status}`);
+    if (!generationResponse.ok) {
+      const errorText = await generationResponse.text();
+      console.error('[generate-chess-variant-code] Spec generation error:', generationResponse.status, errorText);
+
+      if (generationResponse.status === 429) {
+        return new Response(JSON.stringify({
+          error: 'Rate limit atteinte. Veuillez réessayer dans quelques instants.'
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (generationResponse.status === 402) {
+        return new Response(JSON.stringify({
+          error: 'Crédits insuffisants. Veuillez ajouter des crédits à votre workspace Lovable AI.'
+        }), {
+          status: 402,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      throw new Error(`AI Gateway error: ${generationResponse.status}`);
     }
 
-    const codeData = await codeResponse.json();
-    let code = codeData.choices?.[0]?.message?.content || '';
-    
-    // Nettoyer le code (enlever les markdown wrappers si présents)
-    code = code.replace(/```javascript\n?/g, '').replace(/```\n?/g, '').trim();
-    
-    console.log('[generate-chess-variant-code] Code generated successfully');
+    const codeData = await generationResponse.json();
+    const rawContent = codeData.choices?.[0]?.message?.content || '';
 
-    return new Response(JSON.stringify({ 
-      rules,
-      code,
+    let parsedSpec: unknown;
+    let formattedSpec = '';
+
+    try {
+      parsedSpec = parseJsonLike(rawContent);
+      formattedSpec = JSON.stringify(parsedSpec, null, 2);
+    } catch (error) {
+      console.error('[generate-chess-variant-code] Failed to parse generated spec, using fallback.', error);
+      formattedSpec = buildFallbackSpec(description, difficulty);
+    }
+
+    console.log('[generate-chess-variant-code] Plugin spec generated successfully');
+
+    return new Response(JSON.stringify({
+      rules: formattedSpec,
+      code: formattedSpec,
       metadata: {
         difficulty,
         model: 'google/gemini-2.5-pro',
@@ -202,8 +318,11 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('[generate-chess-variant-code] Error:', error);
-    return new Response(JSON.stringify({ 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+    const fallbackSpec = buildFallbackSpec('Variante indisponible', 'intermediate');
+    return new Response(JSON.stringify({
+      error: error instanceof Error ? error.message : 'Unknown error',
+      rules: fallbackSpec,
+      code: fallbackSpec,
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
