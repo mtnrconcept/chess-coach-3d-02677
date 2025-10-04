@@ -59,26 +59,124 @@ const buildFallbackRuleSpec = (
   difficulty: DifficultyLevel,
   ruleName: string,
 ): RuleSpec => {
-  const sanitizedDescription = description.trim() || "Aucune description fournie";
-  const levelLabel = difficultyLabels[difficulty];
-  const overview = `Mode hors ligne — génération assistée indisponible pour le moment. Variante ${levelLabel}. Thème : ${sanitizedDescription}. Focus : ${focusPoints[difficulty]}. Action spéciale suggérée : ${specialActions[difficulty]}. Défi final : ${endgameChallenges[difficulty]}.`;
+  const promptHeadline = description.trim().split(/\n+/)[0]?.trim() ?? "";
+  const proposedName = ruleName.trim().length > 0 ? ruleName.trim() : promptHeadline;
+  const sanitizedName = proposedName.length > 0 ? proposedName : "Les pions peuvent capturer en avant";
+  const difficultyLabel = difficultyLabels[difficulty];
 
   return {
     meta: {
-      name: ruleName,
+      name: sanitizedName,
       base: "chess-base@1.0.0",
       version: "1.0.0",
-      description: overview,
+      description:
+        "Variante : les pions conservent leurs déplacements habituels (un pas en avant, deux pas depuis la rangée de départ si libre) et leurs captures diagonales, MAIS ils peuvent également capturer en avançant d'une case si une pièce ennemie se trouve directement devant eux." +
+        ` Difficulté suggérée : ${difficultyLabel}.`,
       priority: 50,
     },
-    patches: [],
+    patches: [
+      {
+        op: "replace",
+        path: "pieces[id=pawn]",
+        value: {
+          id: "pawn",
+          from: "none",
+          side: "both",
+          moves: [
+            {
+              type: "move",
+              vectorsWhite: [[0, 1]],
+              vectorsBlack: [[0, -1]],
+              maxSteps: 1,
+              requires: ["emptyTarget"],
+            },
+            {
+              type: "move",
+              vectorsWhite: [[0, 2]],
+              vectorsBlack: [[0, -2]],
+              maxSteps: 1,
+              requires: ["emptyPath", "emptyTarget", "onStartRank"],
+            },
+            {
+              type: "capture",
+              vectorsWhite: [[1, 1], [-1, 1]],
+              vectorsBlack: [[1, -1], [-1, -1]],
+              maxSteps: 1,
+              requires: ["enemyOnTarget"],
+            },
+            {
+              type: "capture",
+              vectorsWhite: [[0, 1]],
+              vectorsBlack: [[0, -1]],
+              maxSteps: 1,
+              requires: ["enemyOnTarget"],
+            },
+          ],
+          attributes: {
+            startRankWhite: 2,
+            startRankBlack: 7,
+            enPassant: false,
+          },
+          spawn: {
+            count: 8,
+            startSquares: [
+              "a2",
+              "b2",
+              "c2",
+              "d2",
+              "e2",
+              "f2",
+              "g2",
+              "h2",
+              "a7",
+              "b7",
+              "c7",
+              "d7",
+              "e7",
+              "f7",
+              "g7",
+              "h7",
+            ],
+          },
+        },
+      },
+    ],
     tests: [
       {
-        name: "Fallback smoke test",
+        name: "Smoke: ouverture",
         fen: "startpos",
         script: [
           { move: "e2-e4", by: "pawn" },
           { move: "b8-c6", by: "knight" },
+        ],
+      },
+      {
+        name: "Capture de face blanche",
+        fen: "rnbqkbnr/pppppppp/8/8/4p3/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        script: [
+          { move: "e2-e3", by: "pawn" },
+          { assert: "pieceAt", square: "e3", piece: "pawn", side: "white" },
+          { move: "e3xe4", by: "pawn" },
+          { assert: "pieceAt", square: "e4", piece: "pawn", side: "white" },
+          { assert: "empty", square: "e3" },
+        ],
+      },
+      {
+        name: "Capture de face noire",
+        fen: "rnbqkbnr/pppppppp/8/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        script: [
+          { move: "e7-e6", by: "pawn" },
+          { assert: "pieceAt", square: "e6", piece: "pawn", side: "black" },
+          { move: "e6xe5", by: "pawn" },
+          { assert: "pieceAt", square: "e5", piece: "pawn", side: "black" },
+          { assert: "empty", square: "e6" },
+        ],
+      },
+      {
+        name: "Pas de capture de face si case vide",
+        fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1",
+        script: [
+          { illegal: "e2xe3", by: "pawn" },
         ],
       },
     ],
