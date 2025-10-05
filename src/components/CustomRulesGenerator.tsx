@@ -103,6 +103,7 @@ export function CustomRulesGenerator() {
   const [compiledHash, setCompiledHash] = useState<string | null>(null);
   const [ruleSpec, setRuleSpec] = useState<RuleSpec | null>(null);
   const [compilerWarnings, setCompilerWarnings] = useState<string[]>([]);
+  const [pluginWarning, setPluginWarning] = useState<string | null>(null);
   const [manualCompiledInput, setManualCompiledInput] = useState("");
   const [manualCompiledError, setManualCompiledError] = useState<string | null>(null);
   const [isValidatingCompiledJson, setIsValidatingCompiledJson] = useState(false);
@@ -319,7 +320,7 @@ export function CustomRulesGenerator() {
         throw new Error("La propriété rules est manquante ou invalide.");
       }
 
-      const compiled = parsed as CompiledRuleset;
+      const compiled = parsed as unknown as CompiledRuleset;
       const hash = await computeCompiledRulesetHash(compiled);
 
       setCompiledRuleset(compiled);

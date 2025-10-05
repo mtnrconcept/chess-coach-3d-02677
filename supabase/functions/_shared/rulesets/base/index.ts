@@ -1,4 +1,4 @@
-import chessBase100 from "./chess-base@1.0.0.json" assert { type: "json" };
+import chessBase100 from "./chess-base@1.0.0.json" with { type: "json" };
 import type { CompiledRuleset } from "../types.ts";
 
 const registry: Record<string, CompiledRuleset> = {
