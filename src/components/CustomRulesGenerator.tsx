@@ -87,6 +87,15 @@ const buildSummary = (promptValue: string, rulesValue: string, spec?: RuleSpec |
   return firstLine.length > 240 ? `${firstLine.slice(0, 237)}…` : firstLine;
 };
 
+const VARIANT_SOURCE_ENUM_ERROR_CODE = "22P02";
+
+const isVariantSourceEnumError = (error: PostgrestError | null) => {
+  if (!error) return false;
+  if (error.code === VARIANT_SOURCE_ENUM_ERROR_CODE) return true;
+  const normalizedMessage = `${error.message} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
+  return normalizedMessage.includes("invalid input value for enum variant_source");
+};
+
 export function CustomRulesGenerator() {
   const queryClient = useQueryClient();
   const [description, setDescription] = useState("");
@@ -178,58 +187,75 @@ export function CustomRulesGenerator() {
         metadataPayload.ruleSpec = ruleSpec;
       }
 
-      const effectiveSource: TablesInsert<'chess_variants'>['source'] =
-        compiledBlock ? 'compiled' : 'generated';
+      let effectiveSource: TablesInsert<'chess_variants'>['source'] = compiledBlock ? 'compiled' : 'generated';
 
-      const payload: TablesInsert<'chess_variants'> = {
+      const buildInsertPayload = (source: TablesInsert<'chess_variants'>['source']): TablesInsert<'chess_variants'> => ({
         title: variantName.trim(),
         summary,
         rules: generatedRules,
         difficulty,
         prompt: promptText.length > 0 ? promptText : null,
-        source: effectiveSource,
+        source,
         metadata: metadataPayload as TablesInsert<'chess_variants'>['metadata'],
         rule_id: generatedRuleId,
-      };
+      });
 
-      const { data, error } = await supabase
-        .from('chess_variants')
-        .insert(payload)
-        .select()
-        .single();
+      const attemptInsert = (source: TablesInsert<'chess_variants'>['source']) =>
+        supabase.from('chess_variants').insert(buildInsertPayload(source)).select().single();
+
+      let { data, error } = await attemptInsert(effectiveSource);
+
+      if (effectiveSource === 'compiled' && isVariantSourceEnumError(error)) {
+        console.warn(
+          'Supabase variant_source enum missing compiled value. Retrying insert with generated source.'
+        );
+        effectiveSource = 'generated';
+        ({ data, error } = await attemptInsert(effectiveSource));
+      }
 
       let insertedVariantId = data?.id ?? null;
       let isUpdate = false;
 
       if (error) {
-        const conflictText = `${(error as PostgrestError | undefined)?.message ?? ""} ${
-          (error as PostgrestError | undefined)?.details ?? ""
-        }`.toLowerCase().trim();
+        const conflictText = `${error.message ?? ''} ${error.details ?? ''}`.toLowerCase().trim();
 
         const isRuleIdConflict =
           Boolean(generatedRuleId) &&
           (conflictText.includes('duplicate key') ||
             conflictText.includes('chess_variants_rule_id_key') ||
-            (error as PostgrestError | undefined)?.code === '23505');
+            error.code === '23505');
 
         if (isRuleIdConflict && generatedRuleId) {
-          const updatePayload: TablesUpdate<'chess_variants'> = {
+          const buildUpdatePayload = (
+            source: TablesUpdate<'chess_variants'>['source']
+          ): TablesUpdate<'chess_variants'> => ({
             title: variantName.trim(),
             summary,
             rules: generatedRules,
             difficulty,
             prompt: promptText.length > 0 ? promptText : null,
-            source: effectiveSource,
+            source,
             metadata: metadataPayload as TablesUpdate<'chess_variants'>['metadata'],
             rule_id: generatedRuleId,
-          };
+          });
 
-          const { data: updatedVariant, error: updateError } = await supabase
-            .from('chess_variants')
-            .update(updatePayload)
-            .eq('rule_id', generatedRuleId)
-            .select()
-            .single();
+          const attemptUpdate = (source: TablesUpdate<'chess_variants'>['source']) =>
+            supabase
+              .from('chess_variants')
+              .update(buildUpdatePayload(source))
+              .eq('rule_id', generatedRuleId)
+              .select()
+              .single();
+
+          let { data: updatedVariant, error: updateError } = await attemptUpdate(effectiveSource);
+
+          if (effectiveSource === 'compiled' && isVariantSourceEnumError(updateError)) {
+            console.warn(
+              'Supabase variant_source enum missing compiled value. Retrying update with generated source.'
+            );
+            effectiveSource = 'generated';
+            ({ data: updatedVariant, error: updateError } = await attemptUpdate(effectiveSource));
+          }
 
           if (updateError) throw updateError;
 
