@@ -53,6 +53,7 @@ import {
   type ChessJsEngineAdapter,
   type ExtendedGameState,
 } from "@/engine/variantEngineAdapter";
+import type { CompiledRuleset } from "@/lib/variants/compiled";
 
 type LobbyVariant = {
   id: string;
@@ -63,6 +64,9 @@ type LobbyVariant = {
   source?: string;
   difficulty?: string | null;
   prompt?: string | null;
+  slug?: string | null;
+  compiledHash?: string | null;
+  hasCompiled?: boolean;
 };
 
 type GameLocationState = {
@@ -118,7 +122,10 @@ export default function ChessGame() {
   const location = useLocation();
   const navigate = useNavigate();
   const gameState = (location.state as GameLocationState | undefined) ?? {};
-  
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const variantQueryParam = searchParams.get("variant");
+  const compiledQueryParam = searchParams.get("compiled") === "1";
+
   const [chess] = useState(new Chess());
   const [gamePosition, setGamePosition] = useState(chess.fen());
   const [currentPlayer, setCurrentPlayer] = useState<'w' | 'b'>('w');
@@ -141,6 +148,18 @@ export default function ChessGame() {
 
   // Variant rules
   const [activeVariant] = useState<LobbyVariant | null>(gameState.variant ?? null);
+  const variantStorageKey = useMemo(() => {
+    if (variantQueryParam && variantQueryParam.length > 0) {
+      return `compiled-ruleset:${variantQueryParam}`;
+    }
+    if (activeVariant?.slug) {
+      return `compiled-ruleset:${activeVariant.slug}`;
+    }
+    if (activeVariant?.id) {
+      return `compiled-ruleset:${activeVariant.id}`;
+    }
+    return null;
+  }, [activeVariant?.id, activeVariant?.slug, variantQueryParam]);
   
   // Timer states
   const [whiteTime, setWhiteTime] = useState(gameState.timeControl?.minutes * 60 || 300);
@@ -160,6 +179,28 @@ export default function ChessGame() {
   const [pendingSpecialMoves, setPendingSpecialMoves] = useState<VariantMove[]>([]);
   const [isVariantReady, setIsVariantReady] = useState(false);
   const variantWarningRef = useRef<string | null>(null);
+  const [compiledRuleset, setCompiledRuleset] = useState<CompiledRuleset | null>(null);
+
+  useEffect(() => {
+    if (!compiledQueryParam || !variantStorageKey) {
+      setCompiledRuleset(null);
+      return;
+    }
+
+    try {
+      const raw = localStorage.getItem(variantStorageKey);
+      if (!raw) {
+        setCompiledRuleset(null);
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as CompiledRuleset;
+      setCompiledRuleset(parsed);
+    } catch (error) {
+      console.error("Failed to load compiled ruleset", error);
+      setCompiledRuleset(null);
+    }
+  }, [compiledQueryParam, variantStorageKey]);
 
   const describeSpecialMove = (move: VariantMove) => {
     const base = move.meta?.label || move.meta?.special || 'coup spécial';
@@ -292,7 +333,7 @@ export default function ChessGame() {
       moveHistoryRef.current = [];
       displayHistoryRef.current = [];
       setLastMove(null);
-      if (variantWarningRef.current !== `custom-${activeVariant.id}`) {
+      if (!compiledRuleset && variantWarningRef.current !== `custom-${activeVariant.id}`) {
         toast.info(`La variante « ${activeVariant.title} » est descriptive. Les règles classiques seront appliquées.`);
         variantWarningRef.current = `custom-${activeVariant.id}`;
       }
@@ -345,7 +386,7 @@ export default function ChessGame() {
         variantWarningRef.current = `error-${activeVariant.id}`;
       }
     }
-  }, [activeVariant, chess, gameMode]);
+  }, [activeVariant, chess, compiledRuleset, gameMode]);
 
   const provideCoachingFeedback = async (move: ChessJsMove, updatedHistory: ChessJsMove[], isOpponentMove = false) => {
     if (!isCoachEnabled) return;
