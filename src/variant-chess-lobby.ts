@@ -1255,31 +1255,17 @@ const RulePawnShuriken: RulePlugin = {
   }
 };
 
-const RuleJumpingPawns: RulePlugin = {
+// Clarification produit (2024-12-05) : les pions se multiplient uniquement
+// lors d'un déplacement standard d'une case sans capture ; chaque identifiant
+// de pion ne peut déclencher l'effet qu'une fois pour éviter une croissance
+// infinie, les clones étant marqués comme déjà utilisés.
+const RuleMultiplyingPawns: RulePlugin = {
   id: 'jumping-pawns',
-  name: 'Pion qui sautent',
+  name: 'Pions multiplicateurs',
   description:
-    'Chaque pion peut une fois sauter de deux cases en ignorant l’obstacle direct. Une pièce non royale obtient un mouvement de maîtrise unique : rejouer la même trajectoire immédiatement ou se fortifier pour bloquer une capture.',
+    'Clarification produit : un pion qui avance d’une case sans capturer laisse une copie sur sa case d’origine. Chaque pion (original ou clone) ne peut se multiplier qu’une seule fois. Les mouvements de maîtrise demeurent disponibles pour les autres pièces.',
   onGenerateExtraMoves(state, pos, piece, api) {
     const extras: Move[] = [];
-
-    if (piece.type === 'pawn') {
-      const usedKey = `${piece.id}_jump_used`;
-      if (!state.flags[piece.color][usedKey]) {
-        const dir = piece.color === 'white' ? -1 : 1;
-        const landing = { x: pos.x, y: pos.y + 2 * dir };
-        if (api.inBounds(landing)) {
-          const target = api.getPieceAt(state, landing);
-          if (!target || target.color !== piece.color) {
-            extras.push({
-              from: clone(pos),
-              to: clone(landing),
-              meta: { special: 'jumping_pawn', usedKey },
-            });
-          }
-        }
-      }
-    }
 
     if (piece.type !== 'king') {
       const masteryUsed = Boolean(state.flags[piece.color].mastery_used);
@@ -1292,33 +1278,6 @@ const RuleJumpingPawns: RulePlugin = {
     return extras;
   },
   onBeforeMoveApply(state, move, api) {
-    if (move.meta?.special === 'jumping_pawn') {
-      const pawn = api.getPieceAt(state, move.from);
-      if (!pawn || pawn.type !== 'pawn') return { allow: false };
-      const dir = pawn.color === 'white' ? -1 : 1;
-      const expected = { x: move.from.x, y: move.from.y + 2 * dir };
-      if (!eqPos(move.to, expected)) return { allow: false };
-      const dest = api.getPieceAt(state, move.to);
-      if (dest && dest.color === pawn.color) return { allow: false };
-      const usedKey = (move.meta.usedKey as string) || `${pawn.id}_jump_used`;
-      if (state.flags[pawn.color][usedKey]) return { allow: false };
-      return {
-        allow: true,
-        transform: (s) => {
-          const currentPawn = api.getPieceAt(s, move.from);
-          if (!currentPawn) return;
-          const capture = api.getPieceAt(s, move.to);
-          if (capture && capture.color !== currentPawn.color) {
-            s.graveyard[capture.color].push({ ...capture });
-          }
-          api.setPieceAt(s, move.from, undefined);
-          api.setPieceAt(s, move.to, { ...currentPawn });
-          state.flags[currentPawn.color][usedKey] = true;
-          s.flags[currentPawn.color][usedKey] = true;
-        },
-      };
-    }
-
     if (move.meta?.special === 'mastery_repeat') {
       const origin = api.getPieceAt(state, move.from);
       if (!origin || origin.type === 'king') return { allow: false };
@@ -1386,6 +1345,42 @@ const RuleJumpingPawns: RulePlugin = {
 
     return { allow: true };
   },
+  onAfterMoveApply(state, ctx, api) {
+    const { move, captured, prevState } = ctx;
+    if (!prevState) return;
+
+    const beforePiece = api.getPieceAt(prevState, move.from);
+    if (!beforePiece) return;
+    const pawnType = beforePiece.type === 'pawn' || beforePiece.type === 'p';
+    if (!pawnType) return;
+
+    const dir = beforePiece.color === 'white' ? -1 : 1;
+    const deltaX = move.to.x - move.from.x;
+    const deltaY = move.to.y - move.from.y;
+    if (deltaX !== 0 || deltaY !== dir) return;
+    if (captured) return;
+
+    const usedKey = `${beforePiece.id}_multiplied`;
+    if (state.flags[beforePiece.color][usedKey]) return;
+
+    if (api.getPieceAt(state, move.from)) return;
+
+    const counterKey = `${beforePiece.color}_pawn_multiply_counter`;
+    const currentIndex = (state.flags[beforePiece.color][counterKey] as number | undefined) ?? 0;
+    const cloneId = `${beforePiece.id}_clone_${currentIndex + 1}`;
+
+    const clone: Piece = {
+      id: cloneId,
+      type: 'pawn',
+      color: beforePiece.color,
+    };
+
+    api.setPieceAt(state, move.from, clone);
+
+    state.flags[beforePiece.color][usedKey] = true;
+    state.flags[beforePiece.color][counterKey] = currentIndex + 1;
+    state.flags[beforePiece.color][`${cloneId}_multiplied`] = true;
+  },
   onTurnStart(state, api) {
     for (let y = 0; y < 8; y++) {
       for (let x = 0; x < 8; x++) {
@@ -1403,8 +1398,9 @@ const RuleJumpingPawns: RulePlugin = {
         }
       }
     }
-  },
+  }
 };
+
 
 /** 19) Reine Divisée : une fois par partie, se scinde en 2 tours OU 2 fous sur cases adjacentes libres. */
 const RuleQueenSplit: RulePlugin = {
@@ -1776,7 +1772,7 @@ export const ALL_RULES: RulePlugin[] = [
   RuleRookMagnet,
   RuleBishopHealer,
   RulePawnShuriken,
-  RuleJumpingPawns,
+  RuleMultiplyingPawns,
   RuleQueenSplit,
   RuleRookFortress,
   RuleDragonKnight,
