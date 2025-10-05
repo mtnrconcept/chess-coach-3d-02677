@@ -19,16 +19,6 @@ export interface PieceSpec {
   attributes?: Record<string, unknown>;
 }
 
-export interface EffectSpec {
-  id: string;
-  trigger: "onMove" | "onCapture" | "onHit" | "onTurnStart" | "onTurnEnd";
-  target: "self" | "allyPiece" | "enemyPiece" | "square" | "any";
-  durationTurns?: number;
-  mod: Record<string, unknown>;
-  conditions?: string[];
-  priority?: number;
-}
-
 export interface RulesCore {
   turnOrder: "whiteThenBlack" | "simultaneous";
   checkRules: "classic" | "disabled" | "altX";
@@ -60,10 +50,10 @@ export interface RuleTest {
 }
 
 export interface CompiledRuleset {
-  meta: { name: string; base: string; version: string; description?: string; priority?: number };
+  meta: { name: string; base: string; version: string; description?: string; priority?: number; id?: string };
   board: { size: "8x8" | "10x10"; zones: unknown[] };
   pieces: PieceSpec[];
-  effects: EffectSpec[];
+  effects: Array<Record<string, unknown>>;
   rules: RulesCore;
   tests?: RuleTest[];
 }
@@ -84,6 +74,7 @@ export interface RuleSpec {
     version: string;
     description?: string;
     priority?: number;
+    id?: string;
   };
   patches?: RulePatch[];
   tests?: RuleTest[];
