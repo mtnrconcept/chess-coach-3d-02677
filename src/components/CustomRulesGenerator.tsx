@@ -26,6 +26,7 @@ type GenerationResponse = {
   rules?: string;
   difficulty?: DifficultyLevel;
   warning?: string;
+  pluginWarning?: string;
   ruleId?: string;
   ruleName?: string;
   pluginCode?: string;
@@ -87,15 +88,6 @@ const buildSummary = (promptValue: string, rulesValue: string, spec?: RuleSpec |
   return firstLine.length > 240 ? `${firstLine.slice(0, 237)}…` : firstLine;
 };
 
-const VARIANT_SOURCE_ENUM_ERROR_CODE = "22P02";
-
-const isVariantSourceEnumError = (error: PostgrestError | null) => {
-  if (!error) return false;
-  if (error.code === VARIANT_SOURCE_ENUM_ERROR_CODE) return true;
-  const normalizedMessage = `${error.message} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
-  return normalizedMessage.includes("invalid input value for enum variant_source");
-};
-
 export function CustomRulesGenerator() {
   const queryClient = useQueryClient();
   const [description, setDescription] = useState("");
@@ -103,6 +95,7 @@ export function CustomRulesGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedRules, setGeneratedRules] = useState("");
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  const [pluginWarning, setPluginWarning] = useState<string | null>(null);
   const [variantName, setVariantName] = useState("");
   const [isSavingVariant, setIsSavingVariant] = useState(false);
   const [lastSavedVariantId, setLastSavedVariantId] = useState<string | null>(null);
@@ -112,15 +105,12 @@ export function CustomRulesGenerator() {
   const [compiledHash, setCompiledHash] = useState<string | null>(null);
   const [ruleSpec, setRuleSpec] = useState<RuleSpec | null>(null);
   const [compilerWarnings, setCompilerWarnings] = useState<string[]>([]);
-  const [pluginWarning, setPluginWarning] = useState<string | null>(null);
   const [manualCompiledInput, setManualCompiledInput] = useState("");
   const [manualCompiledError, setManualCompiledError] = useState<string | null>(null);
   const [isValidatingCompiledJson, setIsValidatingCompiledJson] = useState(false);
-  const [isCompiledSourceSupported, setIsCompiledSourceSupported] = useState<boolean | null>(null);
 
   const hasGeneratedContent = generatedRules.trim().length > 0;
 
-  // ---- helpers
   const ensureCompiledHash = useCallback(
     async (maybeRuleset: CompiledRuleset | null, maybeHash: string | null) => {
       if (!maybeRuleset) return { ruleset: null as CompiledRuleset | null, hash: null as string | null };
@@ -147,7 +137,6 @@ export function CustomRulesGenerator() {
     setLastSavedVariantId(null);
 
     try {
-      // si un ruleset compilé existe, s’assurer d’avoir un hash
       let compiledBlock: {
         hash: string;
         generatedAt: string;
@@ -170,106 +159,80 @@ export function CustomRulesGenerator() {
       const promptText = description.trim();
       const summary = buildSummary(promptText, generatedRules, ruleSpec);
 
-      // slug stable + suffixe anti-collision (si ruleset compilé)
       const baseSlug = slugify(variantName);
-      const slug =
-        compiledBlock?.hash
-          ? `${baseSlug}-${compiledBlock.hash.slice(0, 6)}`
-          : baseSlug;
+      const slug = compiledBlock?.hash ? `${baseSlug}-${compiledBlock.hash.slice(0, 6)}` : baseSlug;
 
       const metadataPayload: Record<string, unknown> = { slug };
       if (compiledBlock) {
         metadataPayload.compiled = compiledBlock;
-        // petit indicateur pour l’UI du lobby
         metadataPayload.kind = "automated";
       }
-
       if (ruleSpec) {
         metadataPayload.ruleSpec = ruleSpec;
       }
 
-      let effectiveSource: TablesInsert<'chess_variants'>['source'] =
-        compiledBlock && isCompiledSourceSupported !== false ? 'compiled' : 'generated';
+      const effectiveSource: TablesInsert<'chess_variants'>['source'] = 'generated';
+      const effectiveRuleId = generatedRuleId ?? slug;
 
-      const buildInsertPayload = (source: TablesInsert<'chess_variants'>['source']): TablesInsert<'chess_variants'> => ({
+      const payload: TablesInsert<'chess_variants'> = {
         title: variantName.trim(),
         summary,
         rules: generatedRules,
         difficulty,
         prompt: promptText.length > 0 ? promptText : null,
-        source,
+        source: effectiveSource,
         metadata: metadataPayload as TablesInsert<'chess_variants'>['metadata'],
-        rule_id: generatedRuleId,
-      });
+        rule_id: effectiveRuleId,
+      };
 
-      const attemptInsert = (source: TablesInsert<'chess_variants'>['source']) =>
-        supabase.from('chess_variants').insert(buildInsertPayload(source)).select().single();
-
-      let { data, error } = await attemptInsert(effectiveSource);
-
-      if (effectiveSource === 'compiled' && isVariantSourceEnumError(error)) {
-        console.warn(
-          'Supabase variant_source enum missing compiled value. Retrying insert with generated source.'
-        );
-        effectiveSource = 'generated';
-        ({ data, error } = await attemptInsert(effectiveSource));
-        setIsCompiledSourceSupported(false);
-      } else if (!error && effectiveSource === 'compiled') {
-        setIsCompiledSourceSupported(true);
-      }
+      const { data, error } = await supabase
+        .from('chess_variants')
+        .insert(payload)
+        .select()
+        .single();
 
       let insertedVariantId = data?.id ?? null;
       let isUpdate = false;
 
       if (error) {
-        const conflictText = `${error.message ?? ''} ${error.details ?? ''}`.toLowerCase().trim();
+        const e = error as PostgrestError | any;
+        const conflictText = `${e?.message ?? ""} ${e?.details ?? ""}`.toLowerCase().trim();
 
         const isRuleIdConflict =
-          Boolean(generatedRuleId) &&
+          Boolean(effectiveRuleId) &&
           (conflictText.includes('duplicate key') ||
             conflictText.includes('chess_variants_rule_id_key') ||
-            error.code === '23505');
+            e?.code === '23505');
 
-        if (isRuleIdConflict && generatedRuleId) {
-          const buildUpdatePayload = (
-            source: TablesUpdate<'chess_variants'>['source']
-          ): TablesUpdate<'chess_variants'> => ({
+        if (isRuleIdConflict && effectiveRuleId) {
+          const updatePayload: TablesUpdate<'chess_variants'> = {
             title: variantName.trim(),
             summary,
             rules: generatedRules,
             difficulty,
             prompt: promptText.length > 0 ? promptText : null,
-            source,
+            source: effectiveSource as any,
             metadata: metadataPayload as TablesUpdate<'chess_variants'>['metadata'],
-            rule_id: generatedRuleId,
-          });
+            rule_id: effectiveRuleId,
+          };
 
-          const attemptUpdate = (source: TablesUpdate<'chess_variants'>['source']) =>
-            supabase
-              .from('chess_variants')
-              .update(buildUpdatePayload(source))
-              .eq('rule_id', generatedRuleId)
-              .select()
-              .single();
-
-          let { data: updatedVariant, error: updateError } = await attemptUpdate(effectiveSource);
-
-          if (effectiveSource === 'compiled' && isVariantSourceEnumError(updateError)) {
-            console.warn(
-              'Supabase variant_source enum missing compiled value. Retrying update with generated source.'
-            );
-            effectiveSource = 'generated';
-            ({ data: updatedVariant, error: updateError } = await attemptUpdate(effectiveSource));
-            setIsCompiledSourceSupported(false);
-          } else if (!updateError && effectiveSource === 'compiled') {
-            setIsCompiledSourceSupported(true);
-          }
+          const { data: updatedVariant, error: updateError } = await supabase
+            .from('chess_variants')
+            .update(updatePayload)
+            .eq('rule_id', effectiveRuleId)
+            .select()
+            .single();
 
           if (updateError) throw updateError;
 
           insertedVariantId = updatedVariant?.id ?? null;
           isUpdate = true;
         } else {
+          const pretty =
+            typeof e === "object" && e
+              ? `code=${e.code ?? "?"} | message=${e.message ?? "?"} | details=${e.details ?? "?"} | hint=${e.hint ?? "?"}`
+              : String(error);
+          toast.error(`Échec enregistrement : ${pretty}`);
           throw error;
         }
       }
@@ -300,7 +263,8 @@ export function CustomRulesGenerator() {
     } catch (error) {
       console.error('Error saving custom variant:', error);
       const message =
-        error instanceof Error ? error.message : "Impossible d'enregistrer la variante pour le moment.";
+        (error as any)?.message ??
+        "Impossible d'enregistrer la variante pour le moment.";
       toast.error(message);
     } finally {
       setIsSavingVariant(false);
@@ -317,8 +281,7 @@ export function CustomRulesGenerator() {
     generatedRuleId,
     queryClient,
     difficulty,
-    ensureCompiledHash,
-    isCompiledSourceSupported
+    ensureCompiledHash
   ]);
 
   const handleManualCompiledImport = useCallback(async () => {
@@ -355,7 +318,7 @@ export function CustomRulesGenerator() {
         throw new Error("La propriété rules est manquante ou invalide.");
       }
 
-      const compiled = parsed as unknown as CompiledRuleset;
+      const compiled = parsed as CompiledRuleset;
       const hash = await computeCompiledRulesetHash(compiled);
 
       setCompiledRuleset(compiled);
@@ -439,7 +402,6 @@ export function CustomRulesGenerator() {
       const spec = typed.ruleSpec ?? null;
       setRuleSpec(spec ?? null);
 
-      // ---- si l’API fournit un compiledRuleset, on s’assure d’un hash et on pré-remplit l’éditeur JSON
       if (typed.compiledRuleset) {
         const { ruleset, hash } = await ensureCompiledHash(typed.compiledRuleset, typed.compiledHash ?? null);
         setCompiledRuleset(ruleset);
@@ -464,7 +426,6 @@ export function CustomRulesGenerator() {
 
       setVariantName((previous) => (previous ? previous : suggestedName));
       setGeneratedRuleId(typeof typed.ruleId === 'string' ? typed.ruleId : null);
-      // BUGFIX: on utilisait ruleId par erreur
       setGeneratedRuleName(typeof typed.ruleName === 'string' ? typed.ruleName : suggestedName);
       setLastSavedVariantId(null);
 
@@ -475,6 +436,10 @@ export function CustomRulesGenerator() {
         toast.success("Règles générées avec succès !");
       }
 
+      if (typeof typed.pluginWarning === 'string' && typed.pluginWarning.length > 0) {
+        setPluginWarning(typed.pluginWarning);
+        toast.warning(typed.pluginWarning);
+      }
     } catch (error) {
       console.error('Error generating custom rules:', error);
       const message = error instanceof Error ? error.message : "Erreur lors de la génération des règles";
@@ -616,6 +581,9 @@ export function CustomRulesGenerator() {
                       ))}
                     </ul>
                   )}
+                  {pluginWarning && (
+                    <div className="text-xs text-amber-600 dark:text-amber-400">{pluginWarning}</div>
+                  )}
                 </div>
               )}
             </div>
@@ -711,3 +679,4 @@ export function CustomRulesGenerator() {
     </Card>
   );
 }
+
