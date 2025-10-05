@@ -8,6 +8,7 @@
 
 - Lobby multijoueur permettant de créer ou rejoindre des salons en temps réel.
 - Coach IA et générateur de règles pilotés par **Gemini 2.5 Flash** via l'intégration Lovable.
+- [Nouveau] Procédure détaillée pour générer automatiquement des variantes d'échecs valides avec Codex (voir [docs/codex-variant-checklist.md](docs/codex-variant-checklist.md)).
 
 ### Configuration requise
 
