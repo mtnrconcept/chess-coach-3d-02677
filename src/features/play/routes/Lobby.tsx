@@ -99,6 +99,7 @@ type VariantMetadata = {
   slug?: string;
   plugin?: {
     source?: string | null;
+    code?: string | null;
     ruleId?: string | null;
     createdAt?: string | null;
     warning?: string | null;
@@ -127,6 +128,24 @@ const getVariantSourceDisplay = (
   return variantSourceDisplayMap[source];
 };
 
+const looksLikePluginCode = (value: string): boolean => {
+  const snippet = value.trim();
+  if (snippet.length === 0) return false;
+  if (snippet.includes('\n')) return true;
+  return /module\.exports|function\s|=>|const\s|let\s|var\s|return\s|helpers\./.test(snippet);
+};
+
+const normalisePluginCodeCandidate = (value: string | null | undefined): string | undefined => {
+  if (!value || typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed;
+};
+
 const parseVariantMetadata = (metadata: unknown): VariantMetadata => {
   if (!metadata || typeof metadata !== "object") {
     return {};
@@ -137,16 +156,6 @@ const parseVariantMetadata = (metadata: unknown): VariantMetadata => {
 
   if (typeof base.slug === "string") {
     parsed.slug = base.slug;
-  }
-
-  if (base.plugin && typeof base.plugin === "object") {
-    const plugin = base.plugin as Record<string, unknown>;
-    parsed.plugin = {
-      source: typeof plugin.source === "string" ? plugin.source : undefined,
-      ruleId: typeof plugin.ruleId === "string" ? plugin.ruleId : undefined,
-      createdAt: typeof plugin.createdAt === "string" ? plugin.createdAt : undefined,
-      warning: typeof plugin.warning === "string" ? plugin.warning : undefined,
-    };
   }
 
   if (base.compiled && typeof base.compiled === "object") {
@@ -163,6 +172,45 @@ const parseVariantMetadata = (metadata: unknown): VariantMetadata => {
 
   if (base.ruleSpec && typeof base.ruleSpec === "object") {
     parsed.ruleSpec = base.ruleSpec as RuleSpec;
+  }
+
+  if (base.plugin && typeof base.plugin === "object") {
+    const plugin = base.plugin as Record<string, unknown>;
+    const rawSource = typeof plugin.source === "string" ? plugin.source : undefined;
+    const rawCode = typeof plugin.code === "string" ? plugin.code : undefined;
+    const preparedCode =
+      normalisePluginCodeCandidate(rawCode) ??
+      (rawSource && looksLikePluginCode(rawSource) ? rawSource.trim() : undefined);
+    const hasSchemaDefinition = Boolean(parsed.compiled || parsed.ruleSpec);
+    let sourceKind =
+      rawSource && !looksLikePluginCode(rawSource) ? rawSource : undefined;
+
+    if (hasSchemaDefinition && !preparedCode) {
+      sourceKind = "schema";
+    } else if (!sourceKind && preparedCode) {
+      sourceKind = "external";
+    }
+
+    const pluginMeta: VariantMetadata["plugin"] = {};
+    if (sourceKind) {
+      pluginMeta.source = sourceKind;
+    }
+    if (preparedCode) {
+      pluginMeta.code = preparedCode;
+    }
+    if (typeof plugin.ruleId === "string") {
+      pluginMeta.ruleId = plugin.ruleId;
+    }
+    if (typeof plugin.createdAt === "string") {
+      pluginMeta.createdAt = plugin.createdAt;
+    }
+    if (typeof plugin.warning === "string") {
+      pluginMeta.warning = plugin.warning;
+    }
+
+    parsed.plugin = pluginMeta;
+  } else if (parsed.compiled || parsed.ruleSpec) {
+    parsed.plugin = { source: "schema" };
   }
 
   return parsed;
@@ -299,19 +347,26 @@ export default function Lobby() {
   const isVariantAutomated = Boolean(selectedVariantRule || selectedVariantHasCompiled);
   const selectedVariantAutomationError = selectedVariantData ? variantRuleErrors[selectedVariantData.id] : null;
   const selectedVariantPluginWarning = selectedVariantData?.metadata.plugin?.warning ?? null;
-  const selectedVariantHasPluginSource = Boolean(selectedVariantData?.metadata.plugin?.source);
+  const selectedVariantPluginCode = selectedVariantData?.metadata.plugin?.code ?? null;
+  const selectedVariantHasPluginSource = Boolean(
+    selectedVariantPluginCode && selectedVariantPluginCode.trim().length > 0,
+  );
 
   useEffect(() => {
     const errors: Record<string, string> = {};
 
     for (const variant of remoteVariants) {
-      const pluginSource = variant.metadata.plugin?.source;
-      const ruleId = variant.ruleId ?? variant.metadata.plugin?.ruleId ?? null;
-      if (!pluginSource || !ruleId) {
+      const pluginMeta = variant.metadata.plugin;
+      const ruleId = variant.ruleId ?? pluginMeta?.ruleId ?? null;
+      if (!ruleId) {
         continue;
       }
 
-      const registration = registerExternalRuleFromSource(ruleId, pluginSource);
+      if (pluginMeta?.source === "schema") {
+        continue;
+      }
+
+      const registration = registerExternalRuleFromSource(ruleId, pluginMeta?.code ?? null);
       if (!registration.ok) {
         errors[variant.id] = registration.error ?? "Erreur lors du chargement du code de la variante.";
       }
