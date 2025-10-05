@@ -55,8 +55,7 @@ serve(async (req) => {
 
     const selectedDifficulty = isDifficulty(difficulty) ? difficulty : "intermediate";
 
-    const geminiApiKey =
-      Deno.env.get("LOVABLE_GEMINI_API_KEY") ?? Deno.env.get("GEMINI_API_KEY") ?? undefined;
+    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
 
     const responsePayload = await generateCustomRules(
       {
@@ -64,7 +63,7 @@ serve(async (req) => {
         difficulty: selectedDifficulty,
         ruleName: typeof ruleName === "string" ? ruleName : undefined,
       },
-      { geminiApiKey },
+      { lovableApiKey },
     );
 
     return new Response(JSON.stringify(responsePayload), {
