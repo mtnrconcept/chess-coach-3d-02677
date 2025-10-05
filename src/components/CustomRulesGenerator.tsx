@@ -320,6 +320,7 @@ export function CustomRulesGenerator() {
 
       const compiled = parsed as CompiledRuleset;
       const hash = await computeCompiledRulesetHash(compiled);
+      const formatted = JSON.stringify(compiled, null, 2);
 
       setCompiledRuleset(compiled);
       setCompiledHash(hash);
@@ -328,9 +329,10 @@ export function CustomRulesGenerator() {
       setPluginWarning(null);
       setWarningMessage(null);
       setLastSavedVariantId(null);
+      setGeneratedRules(formatted);
+      setManualCompiledInput(formatted);
 
       const metaName = typeof meta.name === "string" ? meta.name.trim() : "";
-      const metaDescription = typeof meta.description === "string" ? meta.description.trim() : "";
       const metaId = typeof (meta as any).id === "string" ? (meta as any).id.trim() : "";
 
       if (metaId.length > 0) {
@@ -342,12 +344,6 @@ export function CustomRulesGenerator() {
       if (metaName.length > 0) {
         setGeneratedRuleName(metaName);
         if (!variantName.trim()) setVariantName(metaName);
-      }
-
-      if (metaDescription.length > 0) {
-        setGeneratedRules((previous) => (previous.trim().length > 0 ? previous : metaDescription));
-      } else {
-        setGeneratedRules((previous) => (previous.trim().length > 0 ? previous : "Variante importée via CompiledRuleset."));
       }
 
       toast.success("CompiledRuleset importé avec succès !");
@@ -396,8 +392,8 @@ export function CustomRulesGenerator() {
       }
 
       const typed = (data ?? {}) as GenerationResponse;
-      const rules = typeof typed.rules === 'string' ? typed.rules : "";
-      setGeneratedRules(rules);
+
+      let nextRulesContent = typeof typed.rules === "string" ? typed.rules : "";
 
       const spec = typed.ruleSpec ?? null;
       setRuleSpec(spec ?? null);
@@ -406,11 +402,15 @@ export function CustomRulesGenerator() {
         const { ruleset, hash } = await ensureCompiledHash(typed.compiledRuleset, typed.compiledHash ?? null);
         setCompiledRuleset(ruleset);
         setCompiledHash(hash);
-        setManualCompiledInput(JSON.stringify(ruleset, null, 2));
+        const formattedCompiled = JSON.stringify(ruleset, null, 2);
+        setManualCompiledInput(formattedCompiled);
+        nextRulesContent = formattedCompiled;
       } else {
         setCompiledRuleset(null);
         setCompiledHash(null);
       }
+
+      setGeneratedRules(nextRulesContent);
 
       const warnings = Array.isArray(typed.compilerWarnings) ? typed.compilerWarnings : [];
       setCompilerWarnings(warnings);
@@ -452,7 +452,9 @@ export function CustomRulesGenerator() {
 
   useEffect(() => {
     if (compiledRuleset) {
-      setManualCompiledInput(JSON.stringify(compiledRuleset, null, 2));
+      const formatted = JSON.stringify(compiledRuleset, null, 2);
+      setManualCompiledInput(formatted);
+      setGeneratedRules(formatted);
       setManualCompiledError(null);
     }
   }, [compiledRuleset]);
