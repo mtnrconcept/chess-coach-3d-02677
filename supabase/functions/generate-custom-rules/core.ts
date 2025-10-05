@@ -86,35 +86,35 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
           from: "king",
           side: "both",
           moves: [{ pattern: "king" }],
-          spawn: { count: 1, startSquares: ["e1", "e8"] },
+          spawn: { count: 2, startSquares: ["e1", "e8"] },
         },
         {
           id: "queen",
           from: "queen",
           side: "both",
           moves: [{ pattern: "queen" }],
-          spawn: { count: 1, startSquares: ["d1", "d8"] },
+          spawn: { count: 2, startSquares: ["d1", "d8"] },
         },
         {
           id: "rook",
           from: "rook",
           side: "both",
           moves: [{ pattern: "rook" }],
-          spawn: { count: 2, startSquares: ["a1", "h1", "a8", "h8"] },
+          spawn: { count: 4, startSquares: ["a1", "h1", "a8", "h8"] },
         },
         {
           id: "bishop",
           from: "bishop",
           side: "both",
           moves: [{ pattern: "bishop" }],
-          spawn: { count: 2, startSquares: ["c1", "f1", "c8", "f8"] },
+          spawn: { count: 4, startSquares: ["c1", "f1", "c8", "f8"] },
         },
         {
           id: "knight",
           from: "knight",
           side: "both",
           moves: [{ pattern: "knight" }],
-          spawn: { count: 2, startSquares: ["b1", "g1", "b8", "g8"] },
+          spawn: { count: 4, startSquares: ["b1", "g1", "b8", "g8"] },
         },
         {
           id: "pawn",
@@ -122,7 +122,7 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
           side: "both",
           moves: [{ pattern: "pawn" }],
           spawn: {
-            count: 8,
+            count: 16,
             startSquares: [
               "a2",
               "b2",
@@ -147,8 +147,8 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
       effects: [
         {
           id: "pawnLeapOverFrontIfBlocked",
-          applyTo: "pawn",
-          when: "canMove",
+          applyTo: ["pawn"],
+          on: "onGenerateMoves",
           logic: "allowPawnLeapOverFrontIfBlocked",
           params: {
             white: { blockDx: 0, blockDy: 1, landDx: 0, landDy: 2 },
@@ -183,6 +183,14 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
             { move: "b8-c6", by: "knight" },
           ],
         },
+        {
+          name: "Saut du pion bloqué",
+          fen: "7p/8/8/8/8/3p4/3P4/8 w - - 0 1",
+          script: [
+            { move: "d2-d4", by: "pawn" },
+            { move: "h7-h5", by: "pawn" },
+          ],
+        },
       ],
     },
   },
@@ -208,35 +216,35 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
           from: "king",
           side: "both",
           moves: [{ pattern: "king" }],
-          spawn: { count: 1, startSquares: ["e1", "e8"] },
+          spawn: { count: 2, startSquares: ["e1", "e8"] },
         },
         {
           id: "queen",
           from: "queen",
           side: "both",
           moves: [{ pattern: "queen" }],
-          spawn: { count: 1, startSquares: ["d1", "d8"] },
+          spawn: { count: 2, startSquares: ["d1", "d8"] },
         },
         {
           id: "rook",
           from: "rook",
           side: "both",
           moves: [{ pattern: "rook" }],
-          spawn: { count: 2, startSquares: ["a1", "h1", "a8", "h8"] },
+          spawn: { count: 4, startSquares: ["a1", "h1", "a8", "h8"] },
         },
         {
           id: "bishop",
           from: "bishop",
           side: "both",
           moves: [{ pattern: "bishop" }],
-          spawn: { count: 2, startSquares: ["c1", "f1", "c8", "f8"] },
+          spawn: { count: 4, startSquares: ["c1", "f1", "c8", "f8"] },
         },
         {
           id: "knight",
           from: "knight",
           side: "both",
           moves: [{ pattern: "knight" }],
-          spawn: { count: 2, startSquares: ["b1", "g1", "b8", "g8"] },
+          spawn: { count: 4, startSquares: ["b1", "g1", "b8", "g8"] },
         },
         {
           id: "pawn",
@@ -244,7 +252,7 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
           side: "both",
           moves: [{ pattern: "pawn" }],
           spawn: {
-            count: 8,
+            count: 16,
             startSquares: [
               "a2",
               "b2",
@@ -315,35 +323,35 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
           from: "king",
           side: "both",
           moves: [{ pattern: "king" }],
-          spawn: { count: 1, startSquares: ["e1", "e8"] },
+          spawn: { count: 2, startSquares: ["e1", "e8"] },
         },
         {
           id: "queen",
           from: "queen",
           side: "both",
           moves: [{ pattern: "queen" }],
-          spawn: { count: 1, startSquares: ["d1", "d8"] },
+          spawn: { count: 2, startSquares: ["d1", "d8"] },
         },
         {
           id: "rook",
           from: "rook",
           side: "both",
           moves: [{ pattern: "rook" }],
-          spawn: { count: 2, startSquares: ["a1", "h1", "a8", "h8"] },
+          spawn: { count: 4, startSquares: ["a1", "h1", "a8", "h8"] },
         },
         {
           id: "bishop",
           from: "bishop",
           side: "both",
           moves: [{ pattern: "bishop" }],
-          spawn: { count: 2, startSquares: ["c1", "f1", "c8", "f8"] },
+          spawn: { count: 4, startSquares: ["c1", "f1", "c8", "f8"] },
         },
         {
           id: "knight",
           from: "knight",
           side: "both",
           moves: [{ pattern: "knight" }],
-          spawn: { count: 2, startSquares: ["b1", "g1", "b8", "g8"] },
+          spawn: { count: 4, startSquares: ["b1", "g1", "b8", "g8"] },
         },
         {
           id: "pawn",
@@ -351,7 +359,7 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
           side: "both",
           moves: [{ pattern: "pawn" }],
           spawn: {
-            count: 8,
+            count: 16,
             startSquares: [
               "a2",
               "b2",
@@ -376,7 +384,7 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
       effects: [
         {
           id: "bishopPlaceInvisibleMine",
-          applyTo: "bishop",
+          applyTo: ["bishop"],
           when: "onPlayerAction",
           logic: "bishopPlaceInvisibleMine",
           params: {
@@ -413,6 +421,15 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
             { move: "b8-c6", by: "knight" },
           ],
         },
+        {
+          name: "Déplacement du fou",
+          fen: "startpos",
+          script: [
+            { move: "e2-e3", by: "pawn" },
+            { move: "b8-c6", by: "knight" },
+            { move: "f1-b5", by: "bishop" },
+          ],
+        },
       ],
     },
     warning: "Variante précompilée : capacité spéciale des fous.",
@@ -434,35 +451,35 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
           from: "king",
           side: "both",
           moves: [{ pattern: "king" }],
-          spawn: { count: 1, startSquares: ["e1", "e8"] },
+          spawn: { count: 2, startSquares: ["e1", "e8"] },
         },
         {
           id: "queen",
           from: "queen",
           side: "both",
           moves: [{ pattern: "queen" }],
-          spawn: { count: 1, startSquares: ["d1", "d8"] },
+          spawn: { count: 2, startSquares: ["d1", "d8"] },
         },
         {
           id: "rook",
           from: "rook",
           side: "both",
           moves: [{ pattern: "rook" }],
-          spawn: { count: 2, startSquares: ["a1", "h1", "a8", "h8"] },
+          spawn: { count: 4, startSquares: ["a1", "h1", "a8", "h8"] },
         },
         {
           id: "bishop",
           from: "bishop",
           side: "both",
           moves: [{ pattern: "bishop" }],
-          spawn: { count: 2, startSquares: ["c1", "f1", "c8", "f8"] },
+          spawn: { count: 4, startSquares: ["c1", "f1", "c8", "f8"] },
         },
         {
           id: "knight",
           from: "knight",
           side: "both",
           moves: [{ pattern: "knight" }],
-          spawn: { count: 2, startSquares: ["b1", "g1", "b8", "g8"] },
+          spawn: { count: 4, startSquares: ["b1", "g1", "b8", "g8"] },
         },
         {
           id: "pawn",
@@ -470,7 +487,7 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
           side: "both",
           moves: [{ pattern: "pawn" }],
           spawn: {
-            count: 8,
+            count: 16,
             startSquares: [
               "a2",
               "b2",
@@ -495,7 +512,7 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
       effects: [
         {
           id: "queenFreezeEnemy",
-          applyTo: "queen",
+          applyTo: ["queen"],
           when: "onPlayerAction",
           logic: "freezeTargetAlongQueenLines",
           params: {
@@ -529,6 +546,15 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
           script: [
             { move: "e2-e4", by: "pawn" },
             { move: "b8-c6", by: "knight" },
+          ],
+        },
+        {
+          name: "Mobilité de la dame",
+          fen: "startpos",
+          script: [
+            { move: "d2-d4", by: "pawn" },
+            { move: "g8-f6", by: "knight" },
+            { move: "d1-h5", by: "queen" },
           ],
         },
       ],
