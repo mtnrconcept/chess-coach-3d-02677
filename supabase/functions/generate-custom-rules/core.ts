@@ -172,25 +172,51 @@ const normalizeRuleSpec = (raw: unknown, fallbackName: string): RuleSpec | null 
   }
 
   const base = raw as Record<string, unknown>;
-  const metaRaw = base.meta;
-  if (!metaRaw || typeof metaRaw !== "object") {
-    return null;
+  const metaRaw = base.meta && typeof base.meta === "object" ? (base.meta as Record<string, unknown>) : {};
+
+  const nameCandidates = [
+    typeof metaRaw.name === "string" ? metaRaw.name,
+    typeof base.name === "string" ? base.name,
+    fallbackName,
+  ];
+  const name = nameCandidates.find((candidate) => candidate && candidate.trim().length > 0)?.trim() ?? fallbackName;
+
+  const topLevelBaseVersion = (base as Record<string, unknown>)["base_version"];
+  const baseCandidates = [
+    typeof metaRaw.base === "string" ? metaRaw.base,
+    typeof base.base === "string" ? base.base,
+    typeof topLevelBaseVersion === "string" ? topLevelBaseVersion : undefined,
+  ];
+  const baseId = baseCandidates.find((candidate) => candidate && candidate.trim().length > 0)?.trim() ?? "chess-base@1.0.0";
+
+  const topLevelRulesetVersion = (base as Record<string, unknown>)["ruleset_version"];
+  const versionCandidates = [
+    typeof metaRaw.version === "string" ? metaRaw.version,
+    typeof base.version === "string" ? base.version,
+    typeof topLevelRulesetVersion === "string" ? topLevelRulesetVersion : undefined,
+  ];
+  const version = versionCandidates.find((candidate) => candidate && candidate.trim().length > 0)?.trim() ?? "1.0.0";
+
+  let description: string | undefined;
+  if (typeof metaRaw.description === "string") {
+    description = metaRaw.description;
+  } else if (typeof base.description === "string") {
+    description = base.description;
   }
 
-  const metaObj = metaRaw as Record<string, unknown>;
-  const name = typeof metaObj.name === "string" && metaObj.name.trim().length > 0
-    ? metaObj.name.trim()
-    : fallbackName;
-  const baseId = typeof metaObj.base === "string" && metaObj.base.trim().length > 0
-    ? metaObj.base.trim()
-    : "chess-base@1.0.0";
-  const version = typeof metaObj.version === "string" && metaObj.version.trim().length > 0
-    ? metaObj.version.trim()
-    : "1.0.0";
-  const description = typeof metaObj.description === "string" ? metaObj.description : undefined;
-  const priority = typeof metaObj.priority === "number" ? metaObj.priority : 50;
+  let priority = 50;
+  if (typeof metaRaw.priority === "number") {
+    priority = metaRaw.priority;
+  } else if (typeof base.priority === "number") {
+    priority = base.priority;
+  }
 
-  const patches = Array.isArray(base.patches) ? (base.patches as RuleSpec["patches"]) : undefined;
+  const alternatePatchField = (base as Record<string, unknown>)["patch"];
+  const patches = Array.isArray(base.patches)
+    ? (base.patches as RuleSpec["patches"])
+    : Array.isArray(alternatePatchField)
+      ? (alternatePatchField as RuleSpec["patches"])
+      : undefined;
   const tests = Array.isArray(base.tests) ? (base.tests as RuleSpec["tests"]) : undefined;
 
   return {
