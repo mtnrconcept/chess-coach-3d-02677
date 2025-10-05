@@ -116,6 +116,7 @@ export function CustomRulesGenerator() {
   const [manualCompiledInput, setManualCompiledInput] = useState("");
   const [manualCompiledError, setManualCompiledError] = useState<string | null>(null);
   const [isValidatingCompiledJson, setIsValidatingCompiledJson] = useState(false);
+  const [isCompiledSourceSupported, setIsCompiledSourceSupported] = useState<boolean | null>(null);
 
   const hasGeneratedContent = generatedRules.trim().length > 0;
 
@@ -187,7 +188,8 @@ export function CustomRulesGenerator() {
         metadataPayload.ruleSpec = ruleSpec;
       }
 
-      let effectiveSource: TablesInsert<'chess_variants'>['source'] = compiledBlock ? 'compiled' : 'generated';
+      let effectiveSource: TablesInsert<'chess_variants'>['source'] =
+        compiledBlock && isCompiledSourceSupported !== false ? 'compiled' : 'generated';
 
       const buildInsertPayload = (source: TablesInsert<'chess_variants'>['source']): TablesInsert<'chess_variants'> => ({
         title: variantName.trim(),
@@ -211,6 +213,9 @@ export function CustomRulesGenerator() {
         );
         effectiveSource = 'generated';
         ({ data, error } = await attemptInsert(effectiveSource));
+        setIsCompiledSourceSupported(false);
+      } else if (!error && effectiveSource === 'compiled') {
+        setIsCompiledSourceSupported(true);
       }
 
       let insertedVariantId = data?.id ?? null;
@@ -255,6 +260,9 @@ export function CustomRulesGenerator() {
             );
             effectiveSource = 'generated';
             ({ data: updatedVariant, error: updateError } = await attemptUpdate(effectiveSource));
+            setIsCompiledSourceSupported(false);
+          } else if (!updateError && effectiveSource === 'compiled') {
+            setIsCompiledSourceSupported(true);
           }
 
           if (updateError) throw updateError;
@@ -309,7 +317,8 @@ export function CustomRulesGenerator() {
     generatedRuleId,
     queryClient,
     difficulty,
-    ensureCompiledHash
+    ensureCompiledHash,
+    isCompiledSourceSupported
   ]);
 
   const handleManualCompiledImport = useCallback(async () => {
