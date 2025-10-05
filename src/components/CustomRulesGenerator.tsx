@@ -88,6 +88,34 @@ const buildSummary = (promptValue: string, rulesValue: string, spec?: RuleSpec |
   return firstLine.length > 240 ? `${firstLine.slice(0, 237)}…` : firstLine;
 };
 
+const stripCodeFences = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("```")) {
+    return trimmed;
+  }
+  const fencePattern = /^```[a-zA-Z0-9_-]*\n([\s\S]*?)```$/;
+  const match = trimmed.match(fencePattern);
+  if (match) {
+    return match[1].trim();
+  }
+  const firstBreak = trimmed.indexOf("\n");
+  const closingIndex = trimmed.lastIndexOf("```");
+  if (firstBreak !== -1 && closingIndex > firstBreak) {
+    return trimmed.slice(firstBreak + 1, closingIndex).trim();
+  }
+  return trimmed;
+};
+
+const sanitisePluginSource = (value: string | null | undefined): string | null => {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+  const stripped = stripCodeFences(value);
+  const normalised = stripped.replace(/\r\n?/g, "\n");
+  const cleaned = normalised.trim();
+  return cleaned.length > 0 ? cleaned : null;
+};
+
 export function CustomRulesGenerator() {
   const queryClient = useQueryClient();
   const [description, setDescription] = useState("");
@@ -177,7 +205,20 @@ export function CustomRulesGenerator() {
 
       if (pluginSource && pluginSource.trim().length > 0) {
         const pluginMetadata: Record<string, unknown> = {
-          source: pluginSource,
+          source: "external",
+          code: pluginSource,
+          ruleId: effectiveRuleId,
+          createdAt: new Date().toISOString(),
+        };
+
+        if (pluginWarning) {
+          pluginMetadata.warning = pluginWarning;
+        }
+
+        metadataPayload.plugin = pluginMetadata;
+      } else if (compiledBlock || ruleSpec) {
+        const pluginMetadata: Record<string, unknown> = {
+          source: "schema",
           ruleId: effectiveRuleId,
           createdAt: new Date().toISOString(),
         };
@@ -431,8 +472,7 @@ export function CustomRulesGenerator() {
       setGeneratedRules(nextRulesContent);
 
       if (typeof typed.pluginCode === 'string') {
-        const trimmedPlugin = typed.pluginCode.trim();
-        setPluginSource(trimmedPlugin.length > 0 ? trimmedPlugin : null);
+        setPluginSource(sanitisePluginSource(typed.pluginCode));
       } else {
         setPluginSource(null);
       }

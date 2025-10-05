@@ -183,6 +183,30 @@ function clone<T>(x: T): T { return JSON.parse(JSON.stringify(x)); }
 const externalRules = new Map<string, RulePlugin>();
 const externalRuleSources = new Map<string, string>();
 
+function stripCodeFences(source: string): string {
+  const trimmed = source.trim();
+  if (!trimmed.startsWith("```")) {
+    return source;
+  }
+
+  const fencePattern = /^```[a-zA-Z0-9_-]*\n([\s\S]*?)```$/;
+  const match = trimmed.match(fencePattern);
+  if (match) {
+    return match[1];
+  }
+
+  const closingIndex = trimmed.lastIndexOf("```");
+  if (closingIndex > 2) {
+    return trimmed.slice(3, closingIndex).trim();
+  }
+
+  return source;
+}
+
+function normaliseLineEndings(source: string): string {
+  return source.replace(/\r\n?/g, "\n");
+}
+
 function stripSourceMappingDirectives(source: string): string {
   return source.replace(/\s*\/\/\s*#\s*sourceMappingURL=.*$/gm, "");
 }
@@ -226,8 +250,10 @@ function normaliseModuleSyntax(source: string): string {
 }
 
 function prepareExternalRuleSource(raw: string): string {
-  const withoutBom = removeByteOrderMark(raw);
-  const withoutMaps = stripSourceMappingDirectives(withoutBom);
+  const withoutFences = stripCodeFences(raw);
+  const withoutBom = removeByteOrderMark(withoutFences);
+  const normalisedNewlines = normaliseLineEndings(withoutBom);
+  const withoutMaps = stripSourceMappingDirectives(normalisedNewlines);
   const normalised = normaliseModuleSyntax(withoutMaps);
   return normalised.trim();
 }
@@ -312,28 +338,47 @@ export function registerExternalRule(rule: RulePlugin): ExternalRuleRegistration
   return { ok: true };
 }
 
-export function registerExternalRuleFromSource(ruleId: string, source: string): ExternalRuleRegistrationResult {
+function ensureFallbackRule(ruleId: string) {
+  if (externalRules.has(ruleId)) {
+    return;
+  }
+  externalRules.set(ruleId, {
+    id: ruleId,
+    name: `Variante ${ruleId}`,
+    description: "Variante inactive : aucun code externe valide n'a été chargé.",
+  });
+}
+
+export function registerExternalRuleFromSource(ruleId: string, source: string | null | undefined): ExternalRuleRegistrationResult {
   if (!source || typeof source !== 'string') {
+    console.warn(`RULE_LOADER_EMPTY_CODE: ${ruleId}`);
+    ensureFallbackRule(ruleId);
+    externalRuleSources.delete(ruleId);
     return { ok: false, error: 'Aucun code de variante fourni.' };
   }
 
+  const prepared = prepareExternalRuleSource(source);
   const existingSource = externalRuleSources.get(ruleId);
-  if (existingSource && existingSource === source && externalRules.has(ruleId)) {
+  if (existingSource && existingSource === prepared && externalRules.has(ruleId)) {
     return { ok: true, reused: true };
   }
 
-  try {
-    const prepared = prepareExternalRuleSource(source);
-    if (prepared.length === 0) {
-      return { ok: false, error: 'Le code de la variante est vide.' };
-    }
-    if (/\bimport\s+[^;]+from\s+['"]/i.test(prepared) || /\bimport\s*\(/i.test(prepared)) {
-      return {
-        ok: false,
-        error: "Le code de la variante contient des instructions `import`. Elles ne sont pas supportées dans l'éditeur embarqué.",
-      };
-    }
+  if (!prepared || prepared.trim().length < 5) {
+    console.warn(`RULE_LOADER_EMPTY_CODE: ${ruleId}`);
+    ensureFallbackRule(ruleId);
+    externalRuleSources.delete(ruleId);
+    return { ok: false, error: 'Le code de la variante est vide.' };
+  }
 
+  if (/\bimport\s+[^;]+from\s+['"]/i.test(prepared) || /\bimport\s*\(/i.test(prepared)) {
+    ensureFallbackRule(ruleId);
+    return {
+      ok: false,
+      error: "Le code de la variante contient des instructions `import`. Elles ne sont pas supportées dans l'éditeur embarqué.",
+    };
+  }
+
+  try {
     const body = `"use strict";\n${prepared}\nreturn module.exports ?? exports.default ?? exports;`;
     const factory = new Function('exports', 'module', 'helpers', body);
     const exportsObj: Record<string, unknown> = {};
@@ -342,10 +387,12 @@ export function registerExternalRuleFromSource(ruleId: string, source: string): 
     const returned = factory(exportsObj, moduleObj, helpers);
     const plugin = normaliseRulePlugin(ruleId, returned ?? moduleObj.exports ?? (exportsObj as { default?: unknown }).default ?? exportsObj);
     externalRules.set(ruleId, plugin);
-    externalRuleSources.set(ruleId, source);
+    externalRuleSources.set(ruleId, prepared);
     return { ok: true };
   } catch (error) {
-    console.error('Failed to register external rule', ruleId, error);
+    console.error(`RULE_COMPILE_ERROR: ${ruleId}`, error);
+    ensureFallbackRule(ruleId);
+    externalRuleSources.delete(ruleId);
     return {
       ok: false,
       error: buildFriendlyRegistrationError(error),
