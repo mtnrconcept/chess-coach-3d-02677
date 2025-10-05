@@ -176,17 +176,55 @@ const normaliseSmartQuotes = (value: string) =>
     .replace(/[\u2018\u2019]/g, "'");
 
 const extractJsonBlock = (value: string) => {
-  const fenceMatch = value.match(/```(?:json)?[\r\n]+([\s\S]*?)```/i);
+  const fenceMatch = value.match(/```(?:json|json5)?[\r\n]+([\s\S]*?)```/i);
   if (fenceMatch) {
     return fenceMatch[1];
   }
   return value;
 };
 
+const stripJsonPreamble = (value: string) => value.replace(/^\uFEFF/, "").replace(/^\s*(?:json|JSON)\s*[:=-]?\s*/i, "");
+
+const repairDanglingCommas = (value: string) => value.replace(/,\s*([}\]])/g, "$1");
+
+const shouldRenameHookKey = (record: Record<string, unknown>) =>
+  "when" in record && !("on" in record) && ["actions", "effect", "effects", "handler", "then", "do"].some((key) => key in record);
+
+const normaliseVariantSpec = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => normaliseVariantSpec(item));
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const normalisedEntries: Record<string, unknown> = {};
+
+    const renameHook = shouldRenameHookKey(record);
+
+    for (const [key, child] of Object.entries(record)) {
+      if (key === "when" && renameHook) {
+        normalisedEntries["on"] = normaliseVariantSpec(child);
+        continue;
+      }
+
+      normalisedEntries[key] = normaliseVariantSpec(child);
+    }
+
+    return normalisedEntries;
+  }
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  return value;
+};
+
 const parseJsonLike = (rawValue: string): unknown => {
   const trimmed = rawValue.trim();
   const unfenced = extractJsonBlock(trimmed);
-  const normalised = normaliseSmartQuotes(unfenced).trim();
+  const preambleStripped = stripJsonPreamble(unfenced);
+  const normalised = normaliseSmartQuotes(preambleStripped).trim();
 
   const attemptParse = (candidate: string) => {
     const cleaned = candidate.trim();
@@ -199,6 +237,15 @@ const parseJsonLike = (rawValue: string): unknown => {
   try {
     return attemptParse(normalised);
   } catch (initialError) {
+    const repaired = repairDanglingCommas(normalised.replace(/[;\s]+$/, ""));
+    if (repaired !== normalised) {
+      try {
+        return attemptParse(repaired);
+      } catch (repairError) {
+        console.error('Failed to parse repaired JSON-like content', repairError, rawValue);
+      }
+    }
+
     const firstBrace = normalised.indexOf('{');
     const lastBrace = normalised.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -334,7 +381,8 @@ serve(async (req) => {
 
     try {
       parsedSpec = parseJsonLike(rawContent);
-      formattedSpec = JSON.stringify(parsedSpec, null, 2);
+      const sanitisedSpec = normaliseVariantSpec(parsedSpec);
+      formattedSpec = JSON.stringify(sanitisedSpec, null, 2);
     } catch (error) {
       console.error('[generate-chess-variant-code] Failed to parse generated spec, using fallback.', error);
       formattedSpec = buildFallbackSpec(description, difficulty);
