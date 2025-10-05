@@ -28,6 +28,404 @@ export interface GenerateCustomRulesOptions {
   fetchImpl?: typeof fetch;
 }
 
+const stripDiacritics = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+
+const toSearchable = (value: string) => stripDiacritics(value).toLowerCase();
+
+const sortObjectKeys = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortObjectKeys(item));
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => [key, sortObjectKeys(item)] as const);
+
+    return Object.fromEntries(entries);
+  }
+
+  return value;
+};
+
+const computeCompiledRulesetHash = async (ruleset: CompiledRuleset): Promise<string> => {
+  const canonical = JSON.stringify(sortObjectKeys(ruleset));
+  const encoder = new TextEncoder();
+  const data = encoder.encode(canonical);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+type PrecompiledVariant = {
+  matches: (searchableDescription: string) => boolean;
+  ruleset: CompiledRuleset;
+  warning?: string;
+};
+
+const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
+  {
+    matches: (text) =>
+      text.includes("pion") &&
+      (text.includes("saute") || text.includes("sauter") || text.includes("saut ") || text.includes("bond")) &&
+      (text.includes("par dessus") || text.includes("pardessus") || text.includes("enjambe")),
+    ruleset: {
+      meta: {
+        name: "Pion saute par-dessus",
+        id: "pion-saute-par-dessus",
+        base: "chess-base@1.0.0",
+        version: "1.0.0",
+        description: "Les pions gardent leurs déplacements et captures habituels. En plus, si une pièce (alliée ou ennemie) bloque la case immédiatement devant, un pion peut sauter au-dessus et atterrir deux cases devant, si la case d'atterrissage est vide. Ce saut n'est pas une capture.",
+      },
+      board: { size: "8x8", zones: [] },
+      pieces: [
+        {
+          id: "king",
+          from: "king",
+          side: "both",
+          moves: [{ pattern: "king" }],
+          spawn: { count: 1, startSquares: ["e1", "e8"] },
+        },
+        {
+          id: "queen",
+          from: "queen",
+          side: "both",
+          moves: [{ pattern: "queen" }],
+          spawn: { count: 1, startSquares: ["d1", "d8"] },
+        },
+        {
+          id: "rook",
+          from: "rook",
+          side: "both",
+          moves: [{ pattern: "rook" }],
+          spawn: { count: 2, startSquares: ["a1", "h1", "a8", "h8"] },
+        },
+        {
+          id: "bishop",
+          from: "bishop",
+          side: "both",
+          moves: [{ pattern: "bishop" }],
+          spawn: { count: 2, startSquares: ["c1", "f1", "c8", "f8"] },
+        },
+        {
+          id: "knight",
+          from: "knight",
+          side: "both",
+          moves: [{ pattern: "knight" }],
+          spawn: { count: 2, startSquares: ["b1", "g1", "b8", "g8"] },
+        },
+        {
+          id: "pawn",
+          from: "pawn",
+          side: "both",
+          moves: [{ pattern: "pawn" }],
+          spawn: {
+            count: 8,
+            startSquares: [
+              "a2",
+              "b2",
+              "c2",
+              "d2",
+              "e2",
+              "f2",
+              "g2",
+              "h2",
+              "a7",
+              "b7",
+              "c7",
+              "d7",
+              "e7",
+              "f7",
+              "g7",
+              "h7",
+            ],
+          },
+        },
+      ],
+      effects: [
+        {
+          id: "pawnLeapOverFrontIfBlocked",
+          applyTo: "pawn",
+          when: "canMove",
+          logic: "allowPawnLeapOverFrontIfBlocked",
+          params: {
+            white: { blockDx: 0, blockDy: 1, landDx: 0, landDy: 2 },
+            black: { blockDx: 0, blockDy: -1, landDx: 0, landDy: -2 },
+            requireEmptyLanding: true,
+            captureOnLanding: false,
+            ignoreCheckRules: false,
+          },
+        },
+      ],
+      rules: {
+        turnOrder: "whiteThenBlack",
+        checkRules: "classic",
+        promotion: [{ piece: "pawn", to: ["queen", "rook", "bishop", "knight"] }],
+        winConditions: [
+          { type: "checkmate" },
+          { type: "timeout" },
+          { type: "stalemate", params: { result: "draw" } },
+        ],
+        conflictPolicy: {
+          onDuplicatePieceId: "error",
+          onMoveOverride: "replace",
+          onEffectCollision: "priorityHighWins",
+        },
+      },
+      tests: [
+        {
+          name: "Smoke",
+          fen: "startpos",
+          script: [
+            { move: "e2-e4", by: "pawn" },
+            { move: "b8-c6", by: "knight" },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    matches: (text) =>
+      text.includes("fou") && (text.includes("mine") || text.includes("explos") || text.includes("bombe")),
+    ruleset: {
+      meta: {
+        name: "Fou: mine invisible",
+        id: "fou-mine-invisible",
+        base: "chess-base@1.0.0",
+        version: "1.0.0",
+        description: "Les règles classiques restent en vigueur. Chaque fou peut, une fois par partie, déposer une mine invisible sur sa case. La mine élimine la première pièce ennemie qui entre sur cette case. Les alliés ne déclenchent pas la mine. La mine est révélée à l'explosion.",
+      },
+      board: { size: "8x8", zones: [] },
+      pieces: [
+        {
+          id: "king",
+          from: "king",
+          side: "both",
+          moves: [{ pattern: "king" }],
+          spawn: { count: 1, startSquares: ["e1", "e8"] },
+        },
+        {
+          id: "queen",
+          from: "queen",
+          side: "both",
+          moves: [{ pattern: "queen" }],
+          spawn: { count: 1, startSquares: ["d1", "d8"] },
+        },
+        {
+          id: "rook",
+          from: "rook",
+          side: "both",
+          moves: [{ pattern: "rook" }],
+          spawn: { count: 2, startSquares: ["a1", "h1", "a8", "h8"] },
+        },
+        {
+          id: "bishop",
+          from: "bishop",
+          side: "both",
+          moves: [{ pattern: "bishop" }],
+          spawn: { count: 2, startSquares: ["c1", "f1", "c8", "f8"] },
+        },
+        {
+          id: "knight",
+          from: "knight",
+          side: "both",
+          moves: [{ pattern: "knight" }],
+          spawn: { count: 2, startSquares: ["b1", "g1", "b8", "g8"] },
+        },
+        {
+          id: "pawn",
+          from: "pawn",
+          side: "both",
+          moves: [{ pattern: "pawn" }],
+          spawn: {
+            count: 8,
+            startSquares: [
+              "a2",
+              "b2",
+              "c2",
+              "d2",
+              "e2",
+              "f2",
+              "g2",
+              "h2",
+              "a7",
+              "b7",
+              "c7",
+              "d7",
+              "e7",
+              "f7",
+              "g7",
+              "h7",
+            ],
+          },
+        },
+      ],
+      effects: [
+        {
+          id: "bishopPlaceInvisibleMine",
+          applyTo: "bishop",
+          when: "onPlayerAction",
+          logic: "bishopPlaceInvisibleMine",
+          params: {
+            usesPerBishop: 1,
+            placeOnCurrentSquare: true,
+            trigger: "enemyStepsOn",
+            affects: "enemyOnly",
+            destroyEnteringPiece: true,
+            revealOnDetonation: true,
+          },
+        },
+      ],
+      rules: {
+        turnOrder: "whiteThenBlack",
+        checkRules: "classic",
+        promotion: [{ piece: "pawn", to: ["queen", "rook", "bishop", "knight"] }],
+        winConditions: [
+          { type: "checkmate" },
+          { type: "timeout" },
+          { type: "stalemate", params: { result: "draw" } },
+        ],
+        conflictPolicy: {
+          onDuplicatePieceId: "error",
+          onMoveOverride: "replace",
+          onEffectCollision: "priorityHighWins",
+        },
+      },
+      tests: [
+        {
+          name: "Smoke",
+          fen: "startpos",
+          script: [
+            { move: "e2-e4", by: "pawn" },
+            { move: "b8-c6", by: "knight" },
+          ],
+        },
+      ],
+    },
+    warning: "Variante précompilée : capacité spéciale des fous.",
+  },
+  {
+    matches: (text) => text.includes("dame") && (text.includes("gele") || text.includes("geler") || text.includes("freeze")),
+    ruleset: {
+      meta: {
+        name: "Dame gèle une pièce",
+        id: "dame-gele-une-piece",
+        base: "chess-base@1.0.0",
+        version: "1.0.0",
+        description: "Chaque dame peut, une fois par partie, geler une pièce adverse visible sur ses lignes (comme un coup de dame). La pièce gelée ne peut ni se déplacer ni capturer pendant un tour adverse. Toutes les autres règles restent classiques.",
+      },
+      board: { size: "8x8", zones: [] },
+      pieces: [
+        {
+          id: "king",
+          from: "king",
+          side: "both",
+          moves: [{ pattern: "king" }],
+          spawn: { count: 1, startSquares: ["e1", "e8"] },
+        },
+        {
+          id: "queen",
+          from: "queen",
+          side: "both",
+          moves: [{ pattern: "queen" }],
+          spawn: { count: 1, startSquares: ["d1", "d8"] },
+        },
+        {
+          id: "rook",
+          from: "rook",
+          side: "both",
+          moves: [{ pattern: "rook" }],
+          spawn: { count: 2, startSquares: ["a1", "h1", "a8", "h8"] },
+        },
+        {
+          id: "bishop",
+          from: "bishop",
+          side: "both",
+          moves: [{ pattern: "bishop" }],
+          spawn: { count: 2, startSquares: ["c1", "f1", "c8", "f8"] },
+        },
+        {
+          id: "knight",
+          from: "knight",
+          side: "both",
+          moves: [{ pattern: "knight" }],
+          spawn: { count: 2, startSquares: ["b1", "g1", "b8", "g8"] },
+        },
+        {
+          id: "pawn",
+          from: "pawn",
+          side: "both",
+          moves: [{ pattern: "pawn" }],
+          spawn: {
+            count: 8,
+            startSquares: [
+              "a2",
+              "b2",
+              "c2",
+              "d2",
+              "e2",
+              "f2",
+              "g2",
+              "h2",
+              "a7",
+              "b7",
+              "c7",
+              "d7",
+              "e7",
+              "f7",
+              "g7",
+              "h7",
+            ],
+          },
+        },
+      ],
+      effects: [
+        {
+          id: "queenFreezeEnemy",
+          applyTo: "queen",
+          when: "onPlayerAction",
+          logic: "freezeTargetAlongQueenLines",
+          params: {
+            usesPerQueen: 1,
+            durationPlies: 2,
+            cannot: ["move", "capture"],
+            requiresLineOfSight: true,
+            includeOrthogonalAndDiagonal: true,
+          },
+        },
+      ],
+      rules: {
+        turnOrder: "whiteThenBlack",
+        checkRules: "classic",
+        promotion: [{ piece: "pawn", to: ["queen", "rook", "bishop", "knight"] }],
+        winConditions: [
+          { type: "checkmate" },
+          { type: "timeout" },
+          { type: "stalemate", params: { result: "draw" } },
+        ],
+        conflictPolicy: {
+          onDuplicatePieceId: "error",
+          onMoveOverride: "replace",
+          onEffectCollision: "priorityHighWins",
+        },
+      },
+      tests: [
+        {
+          name: "Smoke",
+          fen: "startpos",
+          script: [
+            { move: "e2-e4", by: "pawn" },
+            { move: "b8-c6", by: "knight" },
+          ],
+        },
+      ],
+    },
+    warning: "Variante précompilée : gel des dames.",
+  },
+];
+
 const difficultyLabels: Record<DifficultyLevel, string> = {
   beginner: "débutant",
   intermediate: "intermédiaire",
@@ -175,24 +573,24 @@ const normalizeRuleSpec = (raw: unknown, fallbackName: string): RuleSpec | null 
   const metaRaw = base.meta && typeof base.meta === "object" ? (base.meta as Record<string, unknown>) : {};
 
   const nameCandidates = [
-    typeof metaRaw.name === "string" ? metaRaw.name,
-    typeof base.name === "string" ? base.name,
+    typeof metaRaw.name === "string" ? metaRaw.name : undefined,
+    typeof base.name === "string" ? base.name : undefined,
     fallbackName,
   ];
   const name = nameCandidates.find((candidate) => candidate && candidate.trim().length > 0)?.trim() ?? fallbackName;
 
   const topLevelBaseVersion = (base as Record<string, unknown>)["base_version"];
   const baseCandidates = [
-    typeof metaRaw.base === "string" ? metaRaw.base,
-    typeof base.base === "string" ? base.base,
+    typeof metaRaw.base === "string" ? metaRaw.base : undefined,
+    typeof base.base === "string" ? base.base : undefined,
     typeof topLevelBaseVersion === "string" ? topLevelBaseVersion : undefined,
   ];
   const baseId = baseCandidates.find((candidate) => candidate && candidate.trim().length > 0)?.trim() ?? "chess-base@1.0.0";
 
   const topLevelRulesetVersion = (base as Record<string, unknown>)["ruleset_version"];
   const versionCandidates = [
-    typeof metaRaw.version === "string" ? metaRaw.version,
-    typeof base.version === "string" ? base.version,
+    typeof metaRaw.version === "string" ? metaRaw.version : undefined,
+    typeof base.version === "string" ? base.version : undefined,
     typeof topLevelRulesetVersion === "string" ? topLevelRulesetVersion : undefined,
   ];
   const version = versionCandidates.find((candidate) => candidate && candidate.trim().length > 0)?.trim() ?? "1.0.0";
@@ -253,16 +651,40 @@ export async function generateCustomRules(
 
   const ruleBaseSlug = slugify(suggestedRuleName.length > 0 ? suggestedRuleName : description);
   const uniqueSuffix = crypto.randomUUID().slice(0, 8);
-  const ruleId = ruleBaseSlug ? `${ruleBaseSlug}-${uniqueSuffix}` : `variant-${uniqueSuffix}`;
+  let ruleId = ruleBaseSlug ? `${ruleBaseSlug}-${uniqueSuffix}` : `variant-${uniqueSuffix}`;
+
+  const searchableDescription = toSearchable(description).replace(/[-_]/g, " ");
+  const precompiled = PRECOMPILED_VARIANTS.find((variant) => variant.matches(searchableDescription));
 
   // Check for "pawn backward" recipe
   const wantsPawnBackward = /\bpion[s]?\b.*\brecul/iu.test(description);
-  
-  let ruleSpec: RuleSpec;
+
+  let ruleSpec: RuleSpec | null = null;
   let warning: string | undefined;
   let compilerWarnings: string[] = [];
+  let compiledRuleset: CompiledRuleset | null = null;
+  let compiledHash: string | null = null;
 
-  if (wantsPawnBackward) {
+  if (precompiled) {
+    ruleSpec = {
+      meta: {
+        name: precompiled.ruleset.meta.name,
+        base: precompiled.ruleset.meta.base,
+        version: precompiled.ruleset.meta.version,
+        description: precompiled.ruleset.meta.description,
+        priority: precompiled.ruleset.meta.priority,
+        id: precompiled.ruleset.meta.id,
+      },
+      patches: [],
+      tests: precompiled.ruleset.tests,
+    };
+    compiledRuleset = precompiled.ruleset;
+    compiledHash = await computeCompiledRulesetHash(precompiled.ruleset);
+    warning = precompiled.warning;
+    if (precompiled.ruleset.meta.id && precompiled.ruleset.meta.id.trim().length > 0) {
+      ruleId = precompiled.ruleset.meta.id.trim();
+    }
+  } else if (wantsPawnBackward) {
     logger.info?.("Detected pawn backward recipe, using programmatic RuleSpec");
     ruleSpec = buildPawnBackwardRecipe(suggestedRuleName);
     warning = "Règle générée automatiquement (recette pré-configurée).";
@@ -350,27 +772,30 @@ Niveau : ${difficultyLabels[difficulty]}.`;
     }
   }
 
-  let compiledRuleset: CompiledRuleset;
-  let compiledHash: string;
-
-  try {
-    const compilation = await compileRuleSpec(ruleSpec);
-    compiledRuleset = compilation.compiled;
-    compiledHash = compilation.hash;
-    compilerWarnings = compilation.warnings;
-  } catch (error) {
-    if (error instanceof RuleCompilationError) {
-      logger.error?.("Rule compilation error:", error.message);
-      warning = `Compilation invalide (${error.message}). Retour au canevas standard.`;
-      const fallbackSpec = buildFallbackRuleSpec(description, difficulty, suggestedRuleName);
-      const fallbackCompilation = await compileRuleSpec(fallbackSpec);
-      compiledRuleset = fallbackCompilation.compiled;
-      compiledHash = fallbackCompilation.hash;
-      compilerWarnings = fallbackCompilation.warnings;
-      ruleSpec = fallbackSpec;
-    } else {
-      throw error;
+  if (!compiledRuleset) {
+    try {
+      const compilation = await compileRuleSpec(ruleSpec!);
+      compiledRuleset = compilation.compiled;
+      compiledHash = compilation.hash;
+      compilerWarnings = compilation.warnings;
+    } catch (error) {
+      if (error instanceof RuleCompilationError) {
+        logger.error?.("Rule compilation error:", error.message);
+        warning = `Compilation invalide (${error.message}). Retour au canevas standard.`;
+        const fallbackSpec = buildFallbackRuleSpec(description, difficulty, suggestedRuleName);
+        const fallbackCompilation = await compileRuleSpec(fallbackSpec);
+        compiledRuleset = fallbackCompilation.compiled;
+        compiledHash = fallbackCompilation.hash;
+        compilerWarnings = fallbackCompilation.warnings;
+        ruleSpec = fallbackSpec;
+      } else {
+        throw error;
+      }
     }
+  }
+
+  if (!ruleSpec) {
+    throw new Error("Aucun RuleSpec n'a pu être déterminé pour cette génération.");
   }
 
   const prettySpec = JSON.stringify(ruleSpec, null, 2);
@@ -381,8 +806,8 @@ Niveau : ${difficultyLabels[difficulty]}.`;
     ruleName: ruleSpec.meta.name ?? suggestedRuleName,
     pluginCode: "",
     warning,
-    compiledRuleset,
-    compiledHash,
+    compiledRuleset: compiledRuleset!,
+    compiledHash: compiledHash!,
     ruleSpec,
     compilerWarnings: compilerWarnings.length > 0 ? compilerWarnings : undefined,
   };
