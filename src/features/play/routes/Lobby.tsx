@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "@/services/supabase/client";
 import type { Tables } from "@/services/supabase/types";
+import { getCompiled, getSlug, hasCompiled, type ChessVariantRow } from "@/lib/variants/compiled";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -89,6 +90,9 @@ type VariantLobbyEntry = {
   createdAt: string | null;
   displayOrder: number | null;
   metadata: VariantMetadata;
+  slug: string;
+  compiled: ReturnType<typeof getCompiled>;
+  hasCompiled: boolean;
 };
 
 type VariantMetadata = {
@@ -236,6 +240,9 @@ export default function Lobby() {
 
     return variantQuery.data.map((row) => {
       const metadata = parseVariantMetadata(row.metadata);
+      const typedRow = row as unknown as ChessVariantRow;
+      const compiled = getCompiled(typedRow);
+      const slug = getSlug(typedRow);
       return {
         id: row.id,
         title: row.title,
@@ -248,6 +255,9 @@ export default function Lobby() {
         createdAt: row.created_at,
         displayOrder: row.display_order ?? null,
         metadata,
+        slug,
+        compiled,
+        hasCompiled: hasCompiled(typedRow),
       };
     });
   }, [variantQuery.data]);
@@ -266,6 +276,9 @@ export default function Lobby() {
         createdAt: null,
         displayOrder: index + 1,
         metadata: {},
+        slug: room.ruleId,
+        compiled: null,
+        hasCompiled: false,
       })),
     []
   );
@@ -282,7 +295,8 @@ export default function Lobby() {
     [selectedVariantData?.ruleId]
   );
 
-  const isVariantAutomated = Boolean(selectedVariantRule);
+  const selectedVariantHasCompiled = Boolean(selectedVariantData?.hasCompiled);
+  const isVariantAutomated = Boolean(selectedVariantRule || selectedVariantHasCompiled);
   const selectedVariantAutomationError = selectedVariantData ? variantRuleErrors[selectedVariantData.id] : null;
   const selectedVariantPluginWarning = selectedVariantData?.metadata.plugin?.warning ?? null;
   const selectedVariantHasPluginSource = Boolean(selectedVariantData?.metadata.plugin?.source);
@@ -907,6 +921,15 @@ export default function Lobby() {
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span
+                            className={`rounded-full border px-3 py-1 font-semibold uppercase tracking-wide ${
+                              isVariantAutomated
+                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                                : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-200'
+                            }`}
+                          >
+                            {isVariantAutomated ? 'Automatisée' : 'Descriptive'}
+                          </span>
                           <span className="rounded-full border border-chess-gold/40 bg-background/70 px-3 py-1 font-semibold uppercase tracking-wide text-chess-gold">
                             Source&nbsp;: {selectedVariantSourceInfo.detail}
                           </span>
@@ -926,6 +949,11 @@ export default function Lobby() {
                           <span className="rounded-full border border-border bg-background/70 px-3 py-1 font-medium">
                             Mode&nbsp;: {gameMode === 'ai' ? 'vs IA' : 'Local'}
                           </span>
+                          {selectedVariantHasCompiled && selectedVariantData?.compiled?.hash && (
+                            <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-600 dark:text-emerald-300">
+                              Hash&nbsp;: #{selectedVariantData.compiled.hash.slice(0, 8)}
+                            </span>
+                          )}
                         </div>
                         {selectedVariantAutomationError && (
                           <Alert className="border-destructive/40 bg-destructive/10 text-destructive">
@@ -960,6 +988,9 @@ export default function Lobby() {
                         <div className="rounded-lg border border-border/60 bg-background/80 p-3 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
                           {selectedVariantData.rules}
                         </div>
+                        <div className="text-xs text-muted-foreground">
+                          <span className="font-mono text-muted-foreground/70">slug:</span>&nbsp;{selectedVariantData.slug}
+                        </div>
                         <div className="flex justify-end">
                           <Button
                             className="hover-lift"
@@ -989,10 +1020,34 @@ export default function Lobby() {
                                     source: selectedVariantData.source ?? undefined,
                                     difficulty: selectedVariantData.difficulty ?? undefined,
                                     prompt: selectedVariantData.prompt ?? undefined,
+                                    slug: selectedVariantData.slug,
+                                    compiledHash: selectedVariantData.compiled?.hash ?? null,
+                                    hasCompiled: selectedVariantData.hasCompiled,
                                   }
                                 : null;
 
-                              navigate("/game", {
+                              const variantKey = selectedVariantData?.slug || selectedVariantData?.id || null;
+                              const compiledRuleset = selectedVariantData?.compiled?.ruleset;
+                              const shouldUseCompiled = Boolean(selectedVariantData?.hasCompiled && compiledRuleset && variantKey);
+
+                              if (shouldUseCompiled && variantKey && compiledRuleset) {
+                                try {
+                                  const storageKey = `compiled-ruleset:${variantKey}`;
+                                  localStorage.setItem(storageKey, JSON.stringify(compiledRuleset));
+                                } catch (error) {
+                                  console.error("Failed to persist compiled ruleset", error);
+                                }
+                              }
+
+                              const params = new URLSearchParams();
+                              if (variantKey) {
+                                params.set("variant", variantKey);
+                              }
+                              if (shouldUseCompiled) {
+                                params.set("compiled", "1");
+                              }
+
+                              navigate(`/game${params.toString() ? `?${params.toString()}` : ""}`, {
                                 state: {
                                   timeControl: { ...variantTimeControl },
                                   eloLevel: { ...variantEloLevel },
