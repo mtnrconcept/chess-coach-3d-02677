@@ -170,11 +170,49 @@ const slugify = (value: string) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 48);
 
-const parseJsonLike = (value: string): unknown => {
-  const trimmed = value.trim();
-  const codeBlockMatch = trimmed.match(/```(?:json)?\n([\s\S]*?)```/i);
-  const jsonText = codeBlockMatch ? codeBlockMatch[1] : trimmed;
-  return JSON.parse(jsonText);
+const normaliseSmartQuotes = (value: string) =>
+  value
+    .replace(/[\u201c\u201d]/g, "\"")
+    .replace(/[\u2018\u2019]/g, "'");
+
+const extractJsonBlock = (value: string) => {
+  const fenceMatch = value.match(/```(?:json)?[\r\n]+([\s\S]*?)```/i);
+  if (fenceMatch) {
+    return fenceMatch[1];
+  }
+  return value;
+};
+
+const parseJsonLike = (rawValue: string): unknown => {
+  const trimmed = rawValue.trim();
+  const unfenced = extractJsonBlock(trimmed);
+  const normalised = normaliseSmartQuotes(unfenced).trim();
+
+  const attemptParse = (candidate: string) => {
+    const cleaned = candidate.trim();
+    if (cleaned.length === 0) {
+      throw new Error("Empty JSON payload");
+    }
+    return JSON.parse(cleaned);
+  };
+
+  try {
+    return attemptParse(normalised);
+  } catch (initialError) {
+    const firstBrace = normalised.indexOf('{');
+    const lastBrace = normalised.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      const sliced = normalised.slice(firstBrace, lastBrace + 1);
+      try {
+        return attemptParse(sliced);
+      } catch (secondaryError) {
+        console.error('Failed to parse sliced JSON-like content', secondaryError, rawValue);
+        throw secondaryError;
+      }
+    }
+    console.error('Failed to parse JSON-like content', initialError, rawValue);
+    throw initialError;
+  }
 };
 
 const difficultyBadgeMap: Record<NonNullable<GenerateRequest['difficulty']>, string> = {
