@@ -240,6 +240,9 @@ function buildFriendlyRegistrationError(error: unknown): string {
     if (/Unexpected identifier/i.test(error.message) && /export\s+default/i.test(error.message)) {
       return "Le code de la variante contient `export default`, non supporté dans le runtime embarqué.";
     }
+    if (/Unexpected\s+(?:end of input|EOF)/i.test(error.message)) {
+      return "Le code de la variante est incomplet : vérifiez les accolades, parenthèses ou backticks fermants manquants.";
+    }
     return error.message;
   }
   return "Erreur inconnue lors du chargement du code de variante.";
