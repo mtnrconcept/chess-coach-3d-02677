@@ -45,7 +45,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { GameState, Match, Move as VariantMove, PieceType } from "@/variant-chess-lobby";
-import { createMatch, generateMoves, playMove } from "@/variant-chess-lobby";
+import { createMatch, generateMoves, getRuleById, playMove } from "@/variant-chess-lobby";
 import {
   algebraicToPos,
   createChessJsEngineAdapter,
@@ -180,6 +180,17 @@ export default function ChessGame() {
   const [isVariantReady, setIsVariantReady] = useState(false);
   const variantWarningRef = useRef<string | null>(null);
   const [compiledRuleset, setCompiledRuleset] = useState<CompiledRuleset | null>(null);
+  const resolvedVariantRule = useMemo(() => {
+    if (!activeVariant?.ruleId) {
+      return null;
+    }
+    try {
+      return getRuleById(activeVariant.ruleId) ?? null;
+    } catch (error) {
+      console.error("Failed to resolve variant rule", error);
+      return null;
+    }
+  }, [activeVariant?.ruleId]);
 
   useEffect(() => {
     if (!compiledQueryParam || !variantStorageKey) {
@@ -319,7 +330,9 @@ export default function ChessGame() {
       return;
     }
 
-    if (!activeVariant.ruleId) {
+    const variantRule = resolvedVariantRule;
+
+    if (!activeVariant.ruleId || !variantRule) {
       variantMatchRef.current = null;
       variantEngineRef.current = null;
       setAvailableSpecialMoves([]);
@@ -333,9 +346,13 @@ export default function ChessGame() {
       moveHistoryRef.current = [];
       displayHistoryRef.current = [];
       setLastMove(null);
-      if (!compiledRuleset && variantWarningRef.current !== `custom-${activeVariant.id}`) {
-        toast.info(`La variante « ${activeVariant.title} » est descriptive. Les règles classiques seront appliquées.`);
-        variantWarningRef.current = `custom-${activeVariant.id}`;
+      const warningKey = !activeVariant.ruleId ? `custom-${activeVariant.id}` : `missing-${activeVariant.id}`;
+      if (variantWarningRef.current !== warningKey) {
+        const message = !activeVariant.ruleId
+          ? `La variante « ${activeVariant.title} » est descriptive. Les règles classiques seront appliquées.`
+          : `La variante « ${activeVariant.title} » n'a pas encore de code automatisé. Les règles standards sont utilisées.`;
+        toast.info(message);
+        variantWarningRef.current = warningKey;
       }
       return;
     }
@@ -386,7 +403,7 @@ export default function ChessGame() {
         variantWarningRef.current = `error-${activeVariant.id}`;
       }
     }
-  }, [activeVariant, chess, compiledRuleset, gameMode]);
+  }, [activeVariant, chess, compiledRuleset, gameMode, resolvedVariantRule]);
 
   const provideCoachingFeedback = async (move: ChessJsMove, updatedHistory: ChessJsMove[], isOpponentMove = false) => {
     if (!isCoachEnabled) return;
