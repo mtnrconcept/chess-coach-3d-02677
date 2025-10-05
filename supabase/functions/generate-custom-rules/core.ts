@@ -188,6 +188,117 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
   },
   {
     matches: (text) =>
+      text.includes("pion") &&
+      text.includes("tour") &&
+      (text.includes("transform") || text.includes("promouv") || text.includes("promotion")) &&
+      (text.includes("une fois") || text.includes("seule fois") || text.includes("uniquement") || text.includes("seulement")),
+    ruleset: {
+      meta: {
+        name: "Promotion tour unique",
+        id: "promotion-tour-unique",
+        base: "chess-base@1.0.0",
+        version: "1.0.0",
+        description: "Variante classique où les pions ne peuvent se promouvoir qu'en tour, une seule option disponible à la promotion.",
+        priority: 50,
+      },
+      board: { size: "8x8", zones: [] },
+      pieces: [
+        {
+          id: "king",
+          from: "king",
+          side: "both",
+          moves: [{ pattern: "king" }],
+          spawn: { count: 1, startSquares: ["e1", "e8"] },
+        },
+        {
+          id: "queen",
+          from: "queen",
+          side: "both",
+          moves: [{ pattern: "queen" }],
+          spawn: { count: 1, startSquares: ["d1", "d8"] },
+        },
+        {
+          id: "rook",
+          from: "rook",
+          side: "both",
+          moves: [{ pattern: "rook" }],
+          spawn: { count: 2, startSquares: ["a1", "h1", "a8", "h8"] },
+        },
+        {
+          id: "bishop",
+          from: "bishop",
+          side: "both",
+          moves: [{ pattern: "bishop" }],
+          spawn: { count: 2, startSquares: ["c1", "f1", "c8", "f8"] },
+        },
+        {
+          id: "knight",
+          from: "knight",
+          side: "both",
+          moves: [{ pattern: "knight" }],
+          spawn: { count: 2, startSquares: ["b1", "g1", "b8", "g8"] },
+        },
+        {
+          id: "pawn",
+          from: "pawn",
+          side: "both",
+          moves: [{ pattern: "pawn" }],
+          spawn: {
+            count: 8,
+            startSquares: [
+              "a2",
+              "b2",
+              "c2",
+              "d2",
+              "e2",
+              "f2",
+              "g2",
+              "h2",
+              "a7",
+              "b7",
+              "c7",
+              "d7",
+              "e7",
+              "f7",
+              "g7",
+              "h7",
+            ],
+          },
+        },
+      ],
+      effects: [],
+      rules: {
+        turnOrder: "whiteThenBlack",
+        checkRules: "classic",
+        promotion: [{ piece: "pawn", to: ["rook"] }],
+        winConditions: [
+          { type: "checkmate" },
+          { type: "timeout" },
+          { type: "stalemate", params: { result: "draw" } },
+        ],
+        conflictPolicy: {
+          onDuplicatePieceId: "error",
+          onMoveOverride: "replace",
+          onEffectCollision: "priorityHighWins",
+        },
+      },
+      tests: [
+        {
+          name: "Promotion en tour",
+          fen: "8/P7/8/8/8/8/8/8 w - - 0 1",
+          script: [{ move: "a7-a8=rook", by: "pawn" }],
+        },
+        {
+          name: "Promotion en dame interdite",
+          fen: "8/P7/8/8/8/8/8/8 w - - 0 1",
+          script: [{ move: "a7-a8=queen", illegal: "INVALID_PROMOTION" }],
+        },
+      ],
+    },
+    warning: "Variante précompilée : promotion limitée à la tour.",
+  },
+  {
+    matches: (text) =>
       text.includes("fou") && (text.includes("mine") || text.includes("explos") || text.includes("bombe")),
     ruleset: {
       meta: {
