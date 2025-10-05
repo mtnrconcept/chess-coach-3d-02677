@@ -22,12 +22,42 @@ function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function parseSegment(segment: string) {
-  const match = segment.match(/^([^[]+)(?:\[id=([^]]+)\])?$/);
+type SegmentSelector =
+  | { type: "id"; value: string }
+  | { type: "index"; value: number };
+
+function parseSegment(segment: string): { key: string; selector?: SegmentSelector } {
+  const match = segment.match(/^([^[]+)(?:\[([^\]]+)\])?$/);
   if (!match) {
     throw new RuleCompilationError(`Invalid patch path segment: ${segment}`);
   }
-  return { key: match[1], selector: match[2] };
+
+  const key = match[1];
+  const rawSelector = match[2];
+
+  if (rawSelector === undefined) {
+    return { key };
+  }
+
+  const selectorValue = rawSelector.trim();
+  if (selectorValue.length === 0) {
+    throw new RuleCompilationError(`Invalid patch path selector in segment: ${segment}`);
+  }
+
+  if (/^id=/i.test(selectorValue)) {
+    const id = selectorValue.slice(selectorValue.indexOf("=") + 1).trim();
+    if (id.length === 0) {
+      throw new RuleCompilationError(`Invalid patch path selector in segment: ${segment}`);
+    }
+    return { key, selector: { type: "id", value: id } };
+  }
+
+  const index = Number.parseInt(selectorValue, 10);
+  if (!Number.isInteger(index) || index < 0) {
+    throw new RuleCompilationError(`Invalid patch path selector in segment: ${segment}`);
+  }
+
+  return { key, selector: { type: "index", value: index } };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -36,17 +66,25 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function getArrayItem(
   container: unknown,
-  selector: string,
+  selector: SegmentSelector,
   path: string,
 ): { array: unknown[]; index: number } {
   if (!Array.isArray(container)) {
     throw new RuleCompilationError(`Path does not target an array: ${path}`);
   }
-  const index = container.findIndex((item) => isObject(item) && (item as { id?: string }).id === selector);
-  if (index === -1) {
-    throw new RuleCompilationError(`Unable to find id=${selector} in path ${path}`);
+  if (selector.type === "id") {
+    const index = container.findIndex((item) => isObject(item) && (item as { id?: string }).id === selector.value);
+    if (index === -1) {
+      throw new RuleCompilationError(`Unable to find id=${selector.value} in path ${path}`);
+    }
+    return { array: container, index };
   }
-  return { array: container, index };
+
+  if (selector.value < 0 || selector.value >= container.length) {
+    throw new RuleCompilationError(`Index ${selector.value} out of bounds for path ${path}`);
+  }
+
+  return { array: container, index: selector.value };
 }
 
 function resolveParent(target: CompiledRuleset, path: string) {
