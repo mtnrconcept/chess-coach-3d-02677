@@ -96,6 +96,7 @@ export function CustomRulesGenerator() {
   const [generatedRules, setGeneratedRules] = useState("");
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
   const [pluginWarning, setPluginWarning] = useState<string | null>(null);
+  const [pluginSource, setPluginSource] = useState<string | null>(null);
   const [variantName, setVariantName] = useState("");
   const [isSavingVariant, setIsSavingVariant] = useState(false);
   const [lastSavedVariantId, setLastSavedVariantId] = useState<string | null>(null);
@@ -173,6 +174,20 @@ export function CustomRulesGenerator() {
 
       const effectiveSource: TablesInsert<'chess_variants'>['source'] = 'generated';
       const effectiveRuleId = generatedRuleId ?? slug;
+
+      if (pluginSource && pluginSource.trim().length > 0) {
+        const pluginMetadata: Record<string, unknown> = {
+          source: pluginSource,
+          ruleId: effectiveRuleId,
+          createdAt: new Date().toISOString(),
+        };
+
+        if (pluginWarning) {
+          pluginMetadata.warning = pluginWarning;
+        }
+
+        metadataPayload.plugin = pluginMetadata;
+      }
 
       const payload: TablesInsert<'chess_variants'> = {
         title: variantName.trim(),
@@ -279,9 +294,11 @@ export function CustomRulesGenerator() {
     compiledHash,
     compilerWarnings,
     generatedRuleId,
+    pluginSource,
+    pluginWarning,
     queryClient,
     difficulty,
-    ensureCompiledHash
+    ensureCompiledHash,
   ]);
 
   const handleManualCompiledImport = useCallback(async () => {
@@ -366,6 +383,7 @@ export function CustomRulesGenerator() {
     setIsGenerating(true);
     setWarningMessage(null);
     setPluginWarning(null);
+    setPluginSource(null);
     setGeneratedRuleId(null);
     setGeneratedRuleName(null);
     setCompiledRuleset(null);
@@ -411,6 +429,13 @@ export function CustomRulesGenerator() {
       }
 
       setGeneratedRules(nextRulesContent);
+
+      if (typeof typed.pluginCode === 'string') {
+        const trimmedPlugin = typed.pluginCode.trim();
+        setPluginSource(trimmedPlugin.length > 0 ? trimmedPlugin : null);
+      } else {
+        setPluginSource(null);
+      }
 
       const warnings = Array.isArray(typed.compilerWarnings) ? typed.compilerWarnings : [];
       setCompilerWarnings(warnings);
@@ -583,9 +608,13 @@ export function CustomRulesGenerator() {
                       ))}
                     </ul>
                   )}
-                  {pluginWarning && (
+                  {pluginWarning ? (
                     <div className="text-xs text-amber-600 dark:text-amber-400">{pluginWarning}</div>
-                  )}
+                  ) : pluginSource ? (
+                    <div className="text-xs text-emerald-600 dark:text-emerald-400">
+                      Code plugin généré automatiquement.
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>

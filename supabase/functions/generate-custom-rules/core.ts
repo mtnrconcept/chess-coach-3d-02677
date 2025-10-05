@@ -602,6 +602,196 @@ const parseJsonLike = (rawValue: string): unknown => {
   }
 };
 
+const extractCodeFence = (value: string) => {
+  const fenceMatch = value.match(/```(?:javascript|js|typescript|ts)?[\r\n]+([\s\S]*?)```/i);
+  if (fenceMatch) {
+    return fenceMatch[1];
+  }
+  return value;
+};
+
+type PluginContext = {
+  ruleId: string;
+  ruleName: string;
+  summary: string;
+};
+
+const normalisePluginModule = (raw: string, context: PluginContext): string => {
+  if (!raw || raw.trim().length === 0) {
+    return "";
+  }
+
+  const unfenced = extractCodeFence(normaliseSmartQuotes(raw));
+  let code = unfenced.trim();
+
+  if (code.length === 0) {
+    return "";
+  }
+
+  code = code.replace(/\r\n?/g, "\n");
+  code = code.replace(/^[ \t]*import[^\n]*$/gim, "");
+  code = code.replace(/\bexport\s+default\s+/g, "module.exports = ");
+  code = code.replace(/\bexport\s+const\s+([A-Za-z0-9_$]+)\s*=\s*/g, "const $1 = ");
+  code = code.replace(/\bexport\s+function\s+([A-Za-z0-9_$]+)\s*\(/g, "function $1(");
+  code = code.replace(/^export\s*\{[^}]*\};?/gim, "");
+
+  const pluginAssignmentPattern = /module\.exports\s*=/;
+  if (!pluginAssignmentPattern.test(code)) {
+    const pluginDeclaration = code.match(/const\s+plugin\s*=\s*{[\s\S]*?};?/);
+    const returnPlugin = code.match(/return\s+plugin\s*;?/);
+    if (pluginDeclaration && !/module\.exports\s*=/.test(code)) {
+      code = `${code}\nmodule.exports = plugin;`;
+    } else if (returnPlugin) {
+      code = code.replace(/return\s+plugin\s*;?/g, "module.exports = plugin;");
+    } else {
+      const inlineObjectMatch = code.match(/return\s+{[\s\S]*?};?/);
+      if (inlineObjectMatch) {
+        code = code.replace(/return\s+({[\s\S]*?});?/, "module.exports = $1;");
+      }
+    }
+  }
+
+  if (!pluginAssignmentPattern.test(code)) {
+    code = `${code}\nmodule.exports = {\n  id: ${JSON.stringify(context.ruleId)},\n  name: ${JSON.stringify(context.ruleName)},\n  description: ${JSON.stringify(context.summary)},\n  onGenerateExtraMoves() { return []; },\n  onBeforeMoveApply() { return { allow: true }; },\n  onAfterMoveApply() {},\n  onTurnStart() {},\n};`;
+  }
+
+  const trimmed = code.trim();
+  const strictPrefix = /^['"]use strict['"];?/;
+  const withStrict = strictPrefix.test(trimmed)
+    ? trimmed
+    : `'use strict';\n${trimmed}`;
+
+  const enforcement = `\n;(function(mod){\n  let plugin = (mod && typeof mod === "object" && !Array.isArray(mod)) ? mod : {};\n  if (!plugin.id || typeof plugin.id !== "string") plugin.id = ${JSON.stringify(context.ruleId)};\n  if (!plugin.name || typeof plugin.name !== "string") plugin.name = ${JSON.stringify(context.ruleName)};\n  if (!plugin.description || typeof plugin.description !== "string") plugin.description = ${JSON.stringify(context.summary)};\n  if (typeof plugin.onBeforeMoveApply !== "function") {\n    plugin.onBeforeMoveApply = () => ({ allow: true });\n  }\n  if (typeof plugin.onAfterMoveApply !== "function") {\n    plugin.onAfterMoveApply = () => {};\n  }\n  if (typeof plugin.onGenerateExtraMoves !== "function") {\n    plugin.onGenerateExtraMoves = () => [];\n  }\n  if (typeof plugin.onTurnStart !== "function") {\n    plugin.onTurnStart = () => {};\n  }\n  module.exports = plugin;\n})(typeof module !== "undefined" ? module.exports : {});\n`;
+
+  return `${withStrict}\n${enforcement}`;
+};
+
+const buildFallbackPluginModule = (context: PluginContext): string => {
+  const baseline = `'use strict';\nmodule.exports = {\n  id: helpers.ruleId || ${JSON.stringify(context.ruleId)},\n  name: ${JSON.stringify(context.ruleName)},\n  description: ${JSON.stringify(context.summary)},\n  onGenerateExtraMoves() {\n    return [];\n  },\n  onBeforeMoveApply() {\n    return { allow: true };\n  },\n  onAfterMoveApply() {},\n  onTurnStart() {},\n};`;
+
+  return normalisePluginModule(baseline, context);
+};
+
+const pluginGenerationSystemPrompt = `Tu es un générateur de modules JavaScript pour Chess Coach 3D.\n\nTon objectif est de produire du code exécutable qui implémente précisément la variante décrite. Le runtime chargera ton module via new Function('exports', 'module', 'helpers', code). Respecte strictement ces règles :\n- Écris uniquement du JavaScript (pas de TypeScript, pas d'import/export, pas de require).\n- Commence le fichier par 'use strict'; si ce n'est pas déjà fait.\n- Exporte l'objet final avec module.exports.\n- L'objet doit contenir : id, name, description, onGenerateExtraMoves, onBeforeMoveApply, onAfterMoveApply, onTurnStart.\n- Utilise helpers.ruleId pour l'identifiant si nécessaire.\n- Les helpers disponibles : helpers.clone(value), helpers.eqPos(a,b), helpers.dirs.rook / helpers.dirs.bishop, helpers.neighbors(pos), helpers.createMove(from, to, meta), helpers.ruleId.\n- Les hooks reçoivent api fournissant : isInCheck, isLegalStandardMove, applyStandardMove, cloneState, getPieceAt, setPieceAt, findKing, allPieces, inBounds.\n- Stocke les états persistants sur piece.tags ou state.flags[color] selon le besoin.\n- Ajoute des indications visuelles/animations via move.meta (ex: { highlight: { squares: ['e4'], color: 'gold' }, animation: { type: 'dash', duration: 600 }, sound: 'whoosh' }).\n- Ne casse jamais les règles de sécurité : ne laisse pas un roi volontairement en échec, vérifie la légalité des coups spéciaux avec l'API.\n- Le code doit être concis, lisible et directement exécutable sans transformation supplémentaire.\nRéponds uniquement avec le code JavaScript final, sans balises Markdown.`;
+
+const truncateForPrompt = (value: string, maxLength = 12000) =>
+  value.length > maxLength ? `${value.slice(0, maxLength)}\n/* tronqué pour la requête */` : value;
+
+interface PluginGenerationRequest {
+  description: string;
+  difficulty: DifficultyLevel;
+  ruleSpec: RuleSpec;
+  ruleId: string;
+  ruleName: string;
+  compiled?: CompiledRuleset | null;
+}
+
+interface PluginGenerationEnv {
+  lovableApiKey?: string;
+  fetchImpl: typeof fetch;
+  logger: Pick<typeof console, "error" | "warn" | "info">;
+}
+
+const generateVariantPlugin = async (
+  request: PluginGenerationRequest,
+  env: PluginGenerationEnv,
+): Promise<{ code: string; warning?: string }> => {
+  const summaryCandidate = request.ruleSpec.meta?.description?.trim() ?? request.description.trim();
+  const safeSummary = summaryCandidate && summaryCandidate.length > 0
+    ? summaryCandidate
+    : `Variante ${request.ruleName}`;
+
+  const context: PluginContext = {
+    ruleId: request.ruleId,
+    ruleName: request.ruleName,
+    summary: safeSummary,
+  };
+
+  const fallback = buildFallbackPluginModule(context);
+
+  if (!env.lovableApiKey) {
+    return {
+      code: fallback,
+      warning: "Mode démo : configurez LOVABLE_API_KEY pour générer le code JavaScript de la variante. Un squelette simplifié a été créé.",
+    };
+  }
+
+  const ruleSpecJson = JSON.stringify(request.ruleSpec, null, 2);
+  const promptParts = [
+    `Description utilisateur : ${request.description}`,
+    `Nom de la règle : ${request.ruleName}`,
+    `Identifiant technique : ${request.ruleId}`,
+    `Niveau ciblé : ${difficultyLabels[request.difficulty]}.`,
+    "Implémente fidèlement la mécanique, les états persistants, le visuel et les animations décrits.",
+    `RuleSpec JSON :\n${truncateForPrompt(ruleSpecJson)}`,
+  ];
+
+  if (request.compiled) {
+    const compiledJson = JSON.stringify(request.compiled, null, 2);
+    promptParts.push(`CompiledRuleset JSON :\n${truncateForPrompt(compiledJson)}`);
+  }
+
+  promptParts.push("Réponds uniquement avec le module JavaScript final (CommonJS).");
+
+  const userPrompt = promptParts.join("\n\n");
+
+  try {
+    env.logger.info?.("Generating plugin module via Lovable AI Gateway...");
+    const response = await env.fetchImpl("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${env.lovableApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-pro",
+        messages: [
+          { role: "system", content: pluginGenerationSystemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        max_completion_tokens: 3000,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => null);
+      env.logger.error?.("Plugin generation failed", response.status, errorText);
+      return {
+        code: fallback,
+        warning: `Échec de génération du plugin (HTTP ${response.status}). Un squelette basique a été inséré.`,
+      };
+    }
+
+    const payload = await response.json();
+    const generated = payload.choices?.[0]?.message?.content?.trim();
+
+    if (!generated) {
+      env.logger.warn?.("Plugin generation returned empty content");
+      return {
+        code: fallback,
+        warning: "Le générateur IA n'a renvoyé aucun code plugin. Un squelette basique a été inséré.",
+      };
+    }
+
+    const normalised = normalisePluginModule(generated, context);
+    if (!normalised || normalised.trim().length === 0) {
+      env.logger.warn?.("Normalisation du plugin impossible, utilisation du fallback");
+      return {
+        code: fallback,
+        warning: "Le code IA était invalide. Un squelette basique a été inséré.",
+      };
+    }
+
+    return { code: normalised };
+  } catch (error) {
+    env.logger.error?.("Unexpected error during plugin generation", error);
+    return {
+      code: fallback,
+      warning: "Erreur lors de la génération du plugin IA. Un squelette basique a été inséré.",
+    };
+  }
+};
+
 const normalizeRuleSpec = (raw: unknown, fallbackName: string): RuleSpec | null => {
   if (!raw || typeof raw !== "object") {
     return null;
@@ -702,6 +892,8 @@ export async function generateCustomRules(
   let compilerWarnings: string[] = [];
   let compiledRuleset: CompiledRuleset | null = null;
   let compiledHash: string | null = null;
+  let pluginCode = "";
+  let pluginWarning: string | undefined;
 
   if (precompiled) {
     ruleSpec = {
@@ -836,17 +1028,55 @@ Niveau : ${difficultyLabels[difficulty]}.`;
     throw new Error("Aucun RuleSpec n'a pu être déterminé pour cette génération.");
   }
 
+  const pluginRuleName = ruleSpec.meta?.name?.trim()?.length
+    ? ruleSpec.meta.name.trim()
+    : suggestedRuleName;
+  const pluginSummary =
+    typeof ruleSpec.meta?.description === "string" && ruleSpec.meta.description.trim().length > 0
+      ? ruleSpec.meta.description.trim()
+      : description.trim().length > 0
+        ? description.trim()
+        : pluginRuleName;
+
+  try {
+    const pluginResult = await generateVariantPlugin(
+      {
+        description,
+        difficulty,
+        ruleSpec,
+        ruleId,
+        ruleName: pluginRuleName,
+        compiled: compiledRuleset,
+      },
+      { lovableApiKey, fetchImpl, logger },
+    );
+
+    const trimmedPluginCode = typeof pluginResult.code === "string" ? pluginResult.code.trim() : "";
+    pluginCode = trimmedPluginCode.length > 0
+      ? trimmedPluginCode
+      : buildFallbackPluginModule({ ruleId, ruleName: pluginRuleName, summary: pluginSummary });
+
+    if (pluginResult.warning) {
+      pluginWarning = pluginResult.warning;
+    }
+  } catch (pluginError) {
+    logger.error?.("Plugin generation threw unexpectedly", pluginError);
+    pluginCode = buildFallbackPluginModule({ ruleId, ruleName: pluginRuleName, summary: pluginSummary });
+    pluginWarning = "Génération du plugin impossible. Un squelette basique a été inséré.";
+  }
+
   const prettySpec = JSON.stringify(ruleSpec, null, 2);
   return {
     rules: prettySpec,
     difficulty,
     ruleId,
     ruleName: ruleSpec.meta.name ?? suggestedRuleName,
-    pluginCode: "",
+    pluginCode,
     warning,
     compiledRuleset: compiledRuleset!,
     compiledHash: compiledHash!,
     ruleSpec,
+    pluginWarning,
     compilerWarnings: compilerWarnings.length > 0 ? compilerWarnings : undefined,
   };
 }
