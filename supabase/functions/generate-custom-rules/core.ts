@@ -563,17 +563,22 @@ const normaliseSmartQuotes = (value: string) =>
     .replace(/[\u2018\u2019]/g, "'");
 
 const extractJsonBlock = (value: string) => {
-  const fenceMatch = value.match(/```(?:json)?[\r\n]+([\s\S]*?)```/i);
+  const fenceMatch = value.match(/```(?:json|json5)?[\r\n]+([\s\S]*?)```/i);
   if (fenceMatch) {
     return fenceMatch[1];
   }
   return value;
 };
 
+const stripJsonPreamble = (value: string) => value.replace(/^\uFEFF/, "").replace(/^\s*(?:json|JSON)\s*[:=-]?\s*/i, "");
+
+const repairDanglingCommas = (value: string) => value.replace(/,\s*([}\]])/g, "$1");
+
 const parseJsonLike = (rawValue: string): unknown => {
   const trimmed = rawValue.trim();
   const unfenced = extractJsonBlock(trimmed);
-  const normalised = normaliseSmartQuotes(unfenced).trim();
+  const preambleStripped = stripJsonPreamble(unfenced);
+  const normalised = normaliseSmartQuotes(preambleStripped).trim();
 
   const attemptParse = (candidate: string) => {
     const cleaned = candidate.trim();
@@ -586,6 +591,15 @@ const parseJsonLike = (rawValue: string): unknown => {
   try {
     return attemptParse(normalised);
   } catch (initialError) {
+    const repaired = repairDanglingCommas(normalised.replace(/[;\s]+$/, ""));
+    if (repaired !== normalised) {
+      try {
+        return attemptParse(repaired);
+      } catch (repairError) {
+        console.error('Failed to parse repaired JSON-like content', repairError, rawValue);
+      }
+    }
+
     const firstBrace = normalised.indexOf('{');
     const lastBrace = normalised.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
