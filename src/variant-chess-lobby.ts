@@ -221,6 +221,12 @@ function removeByteOrderMark(source: string): string {
 function normaliseModuleSyntax(source: string): string {
   let body = source;
 
+  // Supprime les imports ESM statiques ligne-par-ligne
+  body = body.replace(/^[ \t]*import[^\n]*$/gim, "");
+  // Neutralise les imports dynamiques et require() non supportés côté client
+  body = body.replace(/\bimport\s*\(/g, "/*import_removed*/(");
+  body = body.replace(/\brequire\s*\(/g, "/*require_removed*/(");
+
   body = body.replace(/\bexport\s+default\s+/g, "module.exports = ");
   body = body.replace(/\bexport\s+(const|let|var)\s+/g, "$1 ");
   body = body.replace(/\bexport\s+function\s+/g, "function ");

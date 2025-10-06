@@ -768,6 +768,19 @@ type PluginContext = {
   summary: string;
 };
 
+// Vérifie si le code plugin est syntaxiquement exécutable dans le runtime client
+const validatePluginSyntax = (code: string): boolean => {
+  try {
+    const body = `'use strict';\n` + code + `\nreturn module.exports ?? exports.default ?? exports;`;
+    // deno-lint-ignore no-new-func
+    // @ts-ignore
+    new Function('exports','module','helpers', body);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const normalisePluginModule = (raw: string, context: PluginContext): string => {
   if (!raw || raw.trim().length === 0) {
     return "";
@@ -781,7 +794,12 @@ const normalisePluginModule = (raw: string, context: PluginContext): string => {
   }
 
   code = code.replace(/\r\n?/g, "\n");
+  // Retire les imports statiques en début de ligne
   code = code.replace(/^[ \t]*import[^\n]*$/gim, "");
+  // Neutralise les imports dynamiques et require() qui ne sont pas supportés côté client
+  code = code.replace(/\bimport\s*\(/g, "/*import_removed*/(");
+  code = code.replace(/\brequire\s*\(/g, "/*require_removed*/(");
+  // Normalise les exports ESModule vers CommonJS
   code = code.replace(/\bexport\s+default\s+/g, "module.exports = ");
   code = code.replace(/\bexport\s+const\s+([A-Za-z0-9_$]+)\s*=\s*/g, "const $1 = ");
   code = code.replace(/\bexport\s+function\s+([A-Za-z0-9_$]+)\s*\(/g, "function $1(");
