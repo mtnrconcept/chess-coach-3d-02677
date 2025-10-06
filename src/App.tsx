@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ChessHome, ChessGame, Lobby } from "@/features/play";
-import { NotFound } from "@/features/app";
+import { NotFound, RuleEngine } from "@/features/app";
 
 const queryClient = new QueryClient();
 
@@ -18,6 +18,7 @@ const App = () => (
           <Route path="/" element={<ChessHome />} />
           <Route path="/lobby" element={<Lobby />} />
           <Route path="/game" element={<ChessGame />} />
+          <Route path="/rule-engine" element={<RuleEngine />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -24,6 +24,14 @@ GEMINI_API_KEY=<votre clef API Gemini>
 
 Ces clés sont utilisées par les fonctions `chess-coach` et `generate-custom-rules` pour produire les réponses IA.
 
+Pour activer le moteur de règles IA côté interface, ajoutez également la variable suivante à votre fichier `.env` local :
+
+```
+VITE_LOVABLE_API_KEY=<clef fournie par Lovable>
+```
+
+Elle est requise par la nouvelle page "Moteur de Règles" accessible depuis l'accueil.
+
 ## How can I edit this code?
 
 There are several ways of editing your application.
