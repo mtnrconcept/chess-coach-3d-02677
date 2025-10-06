@@ -255,10 +255,25 @@ function normaliseModuleSyntax(source: string): string {
   return body;
 }
 
+function normaliseSmartQuotes(source: string): string {
+  return source
+    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"');
+}
+
+function stripZeroWidthAndNbsp(source: string): string {
+  return source
+    .replace(/[\u00A0\u1680\u180E\u2000-\u200A\u202F\u205F\u3000]/g, " ")
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/[\u2028\u2029]/g, "\n");
+}
+
 function prepareExternalRuleSource(raw: string): string {
-  const withoutFences = stripCodeFences(raw);
-  const withoutBom = removeByteOrderMark(withoutFences);
-  const normalisedNewlines = normaliseLineEndings(withoutBom);
+  const withoutBom = removeByteOrderMark(raw);
+  const withoutHiddenChars = stripZeroWidthAndNbsp(withoutBom);
+  const withoutSmartQuotes = normaliseSmartQuotes(withoutHiddenChars);
+  const withoutFences = stripCodeFences(withoutSmartQuotes);
+  const normalisedNewlines = normaliseLineEndings(withoutFences);
   const withoutMaps = stripSourceMappingDirectives(normalisedNewlines);
   const normalised = normaliseModuleSyntax(withoutMaps);
   return normalised.trim();
@@ -1407,8 +1422,8 @@ const RuleMultiplyingPawns: RulePlugin = {
 
     const beforePiece = api.getPieceAt(prevState, move.from);
     if (!beforePiece) return;
-    const pawnType = beforePiece.type === 'pawn';
-    if (!pawnType) return;
+    const isPawn = beforePiece.type === 'pawn' || beforePiece.type === 'p';
+    if (!isPawn) return;
 
     const dir = beforePiece.color === 'white' ? -1 : 1;
     const deltaX = move.to.x - move.from.x;
