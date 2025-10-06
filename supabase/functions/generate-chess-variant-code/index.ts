@@ -198,6 +198,7 @@ const normaliseVariantSpec = (value: unknown): unknown => {
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     const normalisedEntries: Record<string, unknown> = {};
+    const appendBuckets: Record<string, unknown[]> = {};
 
     const renameHook = shouldRenameHookKey(record);
 
@@ -207,7 +208,30 @@ const normaliseVariantSpec = (value: unknown): unknown => {
         continue;
       }
 
-      normalisedEntries[key] = normaliseVariantSpec(child);
+      const normalisedChild = normaliseVariantSpec(child);
+      const appendMatch = key.match(/^(.*)\/-$/);
+      if (appendMatch) {
+        const baseKey = appendMatch[1];
+        appendBuckets[baseKey] = appendBuckets[baseKey] ?? [];
+        appendBuckets[baseKey].push(normalisedChild);
+        continue;
+      }
+
+      normalisedEntries[key] = normalisedChild;
+    }
+
+    for (const [baseKey, items] of Object.entries(appendBuckets)) {
+      const existing = normalisedEntries[baseKey];
+      if (existing === undefined) {
+        normalisedEntries[baseKey] = items;
+        continue;
+      }
+
+      if (Array.isArray(existing)) {
+        normalisedEntries[baseKey] = [...existing, ...items];
+      } else {
+        normalisedEntries[baseKey] = [existing, ...items];
+      }
     }
 
     return normalisedEntries;

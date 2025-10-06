@@ -198,6 +198,139 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
   {
     matches: (text) =>
       text.includes("pion") &&
+      (text.includes("cote") || text.includes("côté") || text.includes("horizontal") || text.includes("latéral")) &&
+      (text.includes("deplacer") || text.includes("déplacer") || text.includes("bouger")),
+    ruleset: {
+      meta: {
+        name: "Pions latéraux",
+        id: "pion-deplacement-lateral",
+        base: "chess-base@1.0.0",
+        version: "1.0.0",
+        description:
+          "Les pions conservent leurs déplacements standard et peuvent aussi se déplacer d'une case horizontalement sur une case vide sans capturer.",
+        priority: 50,
+      },
+      board: { size: "8x8", zones: [] },
+      pieces: [
+        {
+          id: "king",
+          from: "king",
+          side: "both",
+          moves: [{ pattern: "king" }],
+          spawn: { count: 2, startSquares: ["e1", "e8"] },
+        },
+        {
+          id: "queen",
+          from: "queen",
+          side: "both",
+          moves: [{ pattern: "queen" }],
+          spawn: { count: 2, startSquares: ["d1", "d8"] },
+        },
+        {
+          id: "rook",
+          from: "rook",
+          side: "both",
+          moves: [{ pattern: "rook" }],
+          spawn: { count: 4, startSquares: ["a1", "h1", "a8", "h8"] },
+        },
+        {
+          id: "bishop",
+          from: "bishop",
+          side: "both",
+          moves: [{ pattern: "bishop" }],
+          spawn: { count: 4, startSquares: ["c1", "f1", "c8", "f8"] },
+        },
+        {
+          id: "knight",
+          from: "knight",
+          side: "both",
+          moves: [{ pattern: "knight" }],
+          spawn: { count: 4, startSquares: ["b1", "g1", "b8", "g8"] },
+        },
+        {
+          id: "pawn",
+          from: "pawn",
+          side: "both",
+          moves: [
+            { pattern: "pawn" },
+            {
+              id: "pawn-side-step",
+              pattern: "step",
+              vectors: [
+                { x: 1, y: 0 },
+                { x: -1, y: 0 },
+              ],
+              max: 1,
+              capture: "forbidden",
+              conditions: [{ op: "empty", square: "to" }],
+            },
+          ],
+          spawn: {
+            count: 16,
+            startSquares: [
+              "a2",
+              "b2",
+              "c2",
+              "d2",
+              "e2",
+              "f2",
+              "g2",
+              "h2",
+              "a7",
+              "b7",
+              "c7",
+              "d7",
+              "e7",
+              "f7",
+              "g7",
+              "h7",
+            ],
+          },
+        },
+      ],
+      effects: [],
+      rules: {
+        turnOrder: "whiteThenBlack",
+        checkRules: "classic",
+        promotion: [{ piece: "pawn", to: ["queen", "rook", "bishop", "knight"] }],
+        winConditions: [
+          { type: "checkmate" },
+          { type: "timeout" },
+          { type: "stalemate", params: { result: "draw" } },
+        ],
+        conflictPolicy: {
+          onDuplicatePieceId: "error",
+          onMoveOverride: "replace",
+          onEffectCollision: "priorityHighWins",
+        },
+      },
+      tests: [
+        {
+          name: "Pion blanc latéral droite",
+          fen: "4k3/8/8/8/3P4/8/8/4K3 w - - 0 1",
+          script: [{ move: "d4-e4", by: "pawn" }],
+        },
+        {
+          name: "Pion blanc latéral bloqué",
+          fen: "4k3/8/8/8/3Pp3/8/8/4K3 w - - 0 1",
+          script: [{ assert: "illegal", move: "d4-e4" }],
+        },
+        {
+          name: "Pion noir latéral gauche",
+          fen: "4k3/8/8/3p4/8/8/8/4K3 b - - 0 1",
+          script: [{ move: "d5-c5", by: "pawn" }],
+        },
+        {
+          name: "Pion noir ne capture pas latéralement",
+          fen: "4k3/8/8/2Pp4/8/8/8/4K3 b - - 0 1",
+          script: [{ assert: "illegal", move: "d5-c5" }],
+        },
+      ],
+    },
+  },
+  {
+    matches: (text) =>
+      text.includes("pion") &&
       text.includes("tour") &&
       (text.includes("transform") || text.includes("promouv") || text.includes("promotion")) &&
       (text.includes("une fois") || text.includes("seule fois") || text.includes("uniquement") || text.includes("seulement")),
