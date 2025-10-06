@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Zap, Brain, Trophy, Users } from "lucide-react";
+import { Clock, Zap, Brain, Trophy, Users, Sparkles } from "lucide-react";
 import { CustomRulesGenerator } from "@/components/CustomRulesGenerator";
 
 const timeControls = [
@@ -78,6 +78,15 @@ export default function ChessHome() {
             >
               <Users className="w-5 h-5 mr-2" />
               Ouvrir le lobby multijoueur
+            </Button>
+            <Button
+              variant="royal"
+              size="lg"
+              className="hover-lift"
+              onClick={() => navigate("/rule-engine")}
+            >
+              <Sparkles className="w-5 h-5" />
+              <span>Lancer le moteur de règles IA</span>
             </Button>
           </div>
         </div>
