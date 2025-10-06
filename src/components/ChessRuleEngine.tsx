@@ -1,62 +1,38 @@
 import { useState } from "react";
 import { Sparkles, Save, PlayCircle, AlertCircle, CheckCircle } from "lucide-react";
+import { supabase } from "@/services/supabase/client";
+import type { RuleSpec, CompiledRuleset } from "@/lib/rulesets/types";
 
-const LOVABLE_API_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+type DifficultyLevel = "beginner" | "intermediate" | "advanced";
 
-const stripCodeFences = (value: string): string => {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("```")) {
-    return trimmed;
-  }
-
-  const fencePattern = /^```[a-zA-Z0-9_-]*\n([\s\S]*?)```$/;
-  const match = trimmed.match(fencePattern);
-
-  if (match) {
-    return match[1]?.trim() ?? trimmed;
-  }
-
-  const firstBreak = trimmed.indexOf("\n");
-  const closingIndex = trimmed.lastIndexOf("```");
-
-  if (firstBreak !== -1 && closingIndex > firstBreak) {
-    return trimmed.slice(firstBreak + 1, closingIndex).trim();
-  }
-
-  return trimmed;
+type CustomRulesResponse = {
+  rules?: string;
+  difficulty?: DifficultyLevel;
+  ruleId?: string;
+  ruleName?: string;
+  pluginCode?: string;
+  warning?: string;
+  pluginWarning?: string;
+  compiledRuleset?: CompiledRuleset;
+  compiledHash?: string;
+  ruleSpec?: RuleSpec;
+  compilerWarnings?: string[];
 };
-
-const cleanJsonOutput = (value: string) => stripCodeFences(value).trim();
 
 type GeneratedRule = {
   ruleId: string;
   ruleName: string;
   description: string;
-  category: string;
-  affectedPieces: string[];
-  trigger: string;
-  conditions: Array<Record<string, unknown>>;
-  effects: Array<Record<string, unknown>>;
-  priority: number;
-  isActive: boolean;
+  difficulty: DifficultyLevel;
+  warning?: string;
+  pluginWarning?: string;
+  ruleSpecJson: string;
+  compiledRulesetJson: string | null;
 };
 
 type SavedRule = GeneratedRule & {
   createdAt: string;
   status: "active" | "inactive";
-};
-
-type LovableMessage = {
-  role?: string;
-  content?: string;
-};
-
-type LovableChoice = {
-  message?: LovableMessage;
-};
-
-type LovableResponse = {
-  choices?: LovableChoice[];
 };
 
 const ChessRuleEngine = () => {
@@ -72,74 +48,46 @@ const ChessRuleEngine = () => {
       return;
     }
 
-    const apiKey = import.meta.env.VITE_LOVABLE_API_KEY;
-
-    if (!apiKey || typeof apiKey !== "string") {
-      setError("Clé API Lovable manquante. Ajoutez VITE_LOVABLE_API_KEY à votre configuration.");
-      return;
-    }
-
     setLoading(true);
     setError("");
     setGeneratedRule(null);
 
     try {
-      const payload = {
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content:
-              "Tu es un expert en règles d'échecs et en génération de configurations JSON pour un moteur de jeu d'échecs personnalisable.",
-          },
-          {
-            role: "user",
-            content: `L’utilisateur veut créer une règle personnalisée : "${prompt}"\n\nTu dois générer un objet JSON structuré qui représente cette règle de manière exécutable par un moteur de jeu. Le JSON doit contenir :\n\n1. "ruleId": un identifiant unique (format: rule_[timestamp])\n1. "ruleName": un nom court et descriptif\n1. "description": une description détaillée de la règle\n1. "category": catégorie parmi ["movement", "capture", "special", "condition", "victory", "restriction"]\n1. "affectedPieces": liste des pièces affectées ["king", "queen", "rook", "bishop", "knight", "pawn", "all"]\n1. "trigger": quand la règle s’applique ["always", "onMove", "onCapture", "onCheck", "turnBased", "conditional"]\n1. "conditions": tableau d’objets condition avec {type, value, operator}\n1. "effects": tableau d’objets effet avec {action, target, parameters}\n1. "priority": niveau de priorité (1-10)\n1. "isActive": true par défaut\n\nIMPORTANT: Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans backticks ni formatage markdown. Juste le JSON pur.`,
-          },
-        ],
-        stream: false,
-      };
-
-      const response = await fetch(LOVABLE_API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(payload),
+      const { data, error: functionError } = await supabase.functions.invoke("generate-custom-rules", {
+        body: { description: prompt.trim() },
       });
 
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(`Erreur Lovable (${response.status}): ${message}`);
+      if (functionError) {
+        const message =
+          typeof functionError === "object" && functionError !== null && "message" in functionError
+            ? (functionError as { message?: string }).message ?? ""
+            : "";
+        throw new Error(message || "Erreur lors de la génération de la règle via le backend.");
       }
 
-      const data = (await response.json()) as LovableResponse;
-      const rawContent = data.choices?.[0]?.message?.content?.trim();
-
-      if (!rawContent) {
-        throw new Error("La réponse de Lovable ne contient aucun contenu généré.");
+      if (!data) {
+        throw new Error("Réponse vide du générateur de règles.");
       }
 
-      const parsedRule = JSON.parse(cleanJsonOutput(rawContent)) as Partial<GeneratedRule>;
+      const response = data as CustomRulesResponse;
+      const ruleSpecJson = response.ruleSpec ? JSON.stringify(response.ruleSpec, null, 2) : "";
+      const compiledRulesetJson = response.compiledRuleset ? JSON.stringify(response.compiledRuleset, null, 2) : null;
 
       const completedRule: GeneratedRule = {
-        ruleId: parsedRule.ruleId ?? `rule_${Date.now()}`,
-        ruleName: parsedRule.ruleName ?? "Règle personnalisée",
-        description: parsedRule.description ?? prompt.trim(),
-        category: parsedRule.category ?? "special",
-        affectedPieces: Array.isArray(parsedRule.affectedPieces)
-          ? (parsedRule.affectedPieces.filter((piece) => typeof piece === "string") as string[])
-          : ["all"],
-        trigger: parsedRule.trigger ?? "always",
-        conditions: Array.isArray(parsedRule.conditions)
-          ? (parsedRule.conditions as Array<Record<string, unknown>>)
-          : [],
-        effects: Array.isArray(parsedRule.effects)
-          ? (parsedRule.effects as Array<Record<string, unknown>>)
-          : [],
-        priority: typeof parsedRule.priority === "number" ? parsedRule.priority : 5,
-        isActive: parsedRule.isActive ?? true,
+        ruleId: typeof response.ruleId === "string" && response.ruleId.length > 0 ? response.ruleId : `rule_${Date.now()}`,
+        ruleName:
+          typeof response.ruleName === "string" && response.ruleName.trim().length > 0
+            ? response.ruleName.trim()
+            : "Règle personnalisée",
+        description:
+          response.ruleSpec?.meta?.description?.trim().length
+            ? response.ruleSpec.meta.description.trim()
+            : prompt.trim(),
+        difficulty: response.difficulty ?? "intermediate",
+        warning: response.warning,
+        pluginWarning: response.pluginWarning,
+        ruleSpecJson,
+        compiledRulesetJson,
       };
 
       setGeneratedRule(completedRule);
@@ -229,36 +177,65 @@ const ChessRuleEngine = () => {
         )}
 
         {generatedRule && (
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 mb-6 border border-white/20">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                <CheckCircle className="text-green-400" size={28} />
-                {generatedRule.ruleName}
-              </h2>
-              <span className="bg-purple-500 text-white px-3 py-1 rounded-full text-sm">
-                {generatedRule.category}
-              </span>
-            </div>
-
-            <p className="text-purple-200 mb-4">{generatedRule.description}</p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div className="bg-white/5 rounded-lg p-3">
-                <p className="text-purple-300 text-sm mb-1">Pièces affectées</p>
-                <p className="text-white font-semibold">{generatedRule.affectedPieces.join(", ")}</p>
-              </div>
-              <div className="bg-white/5 rounded-lg p-3">
-                <p className="text-purple-300 text-sm mb-1">Déclencheur</p>
-                <p className="text-white font-semibold">{generatedRule.trigger}</p>
+          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 animate-fade-in">
+            <div className="flex items-center gap-3 mb-4">
+              <CheckCircle className="text-green-400" size={28} />
+              <div>
+                <h2 className="text-2xl font-bold text-white">Règle générée</h2>
+                <p className="text-purple-200">Issue du générateur Lovable via le backend sécurisé</p>
               </div>
             </div>
 
-            <div className="bg-slate-900/50 rounded-lg p-4 mb-4">
-              <p className="text-purple-300 text-sm mb-2">Configuration JSON</p>
-              <pre className="text-green-400 text-xs overflow-x-auto">
-                {JSON.stringify(generatedRule, null, 2)}
+            <div className="grid md:grid-cols-2 gap-6 mb-6">
+              <div className="bg-slate-900/60 rounded-xl p-4 border border-white/10">
+                <h3 className="text-white font-semibold text-lg mb-4">Informations principales</h3>
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-purple-300 font-medium">Nom de la règle:</span>
+                    <p className="text-white text-lg">{generatedRule.ruleName}</p>
+                  </div>
+                  <div>
+                    <span className="text-purple-300 font-medium">Identifiant:</span>
+                    <p className="text-white font-mono text-sm">{generatedRule.ruleId}</p>
+                  </div>
+                  <div>
+                    <span className="text-purple-300 font-medium">Difficulté:</span>
+                    <p className="text-white capitalize">{generatedRule.difficulty}</p>
+                  </div>
+                  {generatedRule.warning && (
+                    <div className="text-amber-300 text-sm bg-amber-500/10 border border-amber-300/40 rounded-lg p-3">
+                      {generatedRule.warning}
+                    </div>
+                  )}
+                  {generatedRule.pluginWarning && (
+                    <div className="text-amber-300 text-sm bg-amber-500/10 border border-amber-300/40 rounded-lg p-3">
+                      {generatedRule.pluginWarning}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-slate-900/60 rounded-xl p-4 border border-white/10">
+                <h3 className="text-white font-semibold text-lg mb-4">Description</h3>
+                <p className="text-purple-200 whitespace-pre-wrap">{generatedRule.description}</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/60 rounded-xl p-4 border border-white/10 mb-6">
+              <h3 className="text-white font-semibold text-lg mb-3">RuleSpec généré</h3>
+              <pre className="bg-black/40 text-green-300 p-4 rounded-lg overflow-x-auto text-sm">
+                {generatedRule.ruleSpecJson}
               </pre>
             </div>
+
+            {generatedRule.compiledRulesetJson && (
+              <div className="bg-slate-900/60 rounded-xl p-4 border border-white/10 mb-6">
+                <h3 className="text-white font-semibold text-lg mb-3">CompiledRuleset</h3>
+                <pre className="bg-black/40 text-green-300 p-4 rounded-lg overflow-x-auto text-sm">
+                  {generatedRule.compiledRulesetJson}
+                </pre>
+              </div>
+            )}
 
             <div className="flex flex-col md:flex-row gap-3">
               <button
@@ -286,14 +263,18 @@ const ChessRuleEngine = () => {
             </h3>
             <div className="space-y-3">
               {savedRules.map((rule) => (
-                <div key={rule.ruleId} className="bg-white/5 rounded-lg p-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-white font-semibold">{rule.ruleName}</p>
-                    <p className="text-purple-300 text-sm">{rule.description}</p>
+                <div key={rule.ruleId} className="bg-white/5 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="text-white font-semibold">{rule.ruleName}</p>
+                      <p className="text-purple-300 text-sm capitalize">{rule.difficulty}</p>
+                    </div>
+                    <span className="text-slate-300 text-sm">{new Date(rule.createdAt).toLocaleString()}</span>
                   </div>
-                  <span className="bg-green-500 text-white px-3 py-1 rounded-full text-sm">
-                    Actif
-                  </span>
+                  <p className="text-slate-200 text-sm mb-3">{rule.description}</p>
+                  <pre className="bg-black/40 text-green-300 p-3 rounded-lg overflow-x-auto text-xs">
+                    {rule.ruleSpecJson}
+                  </pre>
                 </div>
               ))}
             </div>
