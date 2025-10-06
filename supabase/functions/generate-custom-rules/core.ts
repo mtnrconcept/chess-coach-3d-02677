@@ -1077,7 +1077,7 @@ export async function generateCustomRules(
     const systemPrompt = `Tu es un compilateur de variantes d'échecs. Retourne UNIQUEMENT un JSON valide (sans texte ni markdown autour) qui respecte ce schéma :
 {
   "meta": { "name": string, "base": "chess-base@1.0.0", "version": "1.0.0", "description"?: string, "priority"?: number },
-  "patches"?: Array<{ "op": "extend"|"replace"|"remove", "path": string, "value"?: unknown }>,
+  "patches"?: Array<{ "op": "extend"|"replace"|"remove"|"add", "path": string, "value"?: unknown }>,
   "tests"?: Array<{ "name": string, "fen": string, "script": Array<Record<string, unknown>> }>
 }
 Règles :

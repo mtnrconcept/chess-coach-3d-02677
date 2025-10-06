@@ -162,6 +162,64 @@ function applyPatch(target: CompiledRuleset, patch: RulePatch) {
       }
       break;
     }
+    case "add": {
+      if (patch.value === undefined) {
+        throw new RuleCompilationError(`Add operation requires a value at ${patch.path}`);
+      }
+
+      if (selector) {
+        let container = parent[key];
+        if (container === undefined) {
+          parent[key] = [];
+          container = parent[key];
+        }
+
+        if (!Array.isArray(container)) {
+          throw new RuleCompilationError(`Target at ${patch.path} is not an array`);
+        }
+
+        if (selector.type === "id") {
+          if (Array.isArray(patch.value)) {
+            throw new RuleCompilationError(
+              `Add operation with id selector expects a single value at ${patch.path}`,
+            );
+          }
+
+          const existingIndex = container.findIndex(
+            (item) => isObject(item) && (item as { id?: string }).id === selector.value,
+          );
+          if (existingIndex !== -1) {
+            throw new RuleCompilationError(`Element with id=${selector.value} already exists at ${patch.path}`);
+          }
+
+          container.push(patch.value);
+        } else {
+          const insertIndex = selector.value;
+          if (insertIndex < 0 || insertIndex > container.length) {
+            throw new RuleCompilationError(`Index ${insertIndex} out of bounds for add operation at ${patch.path}`);
+          }
+
+          const values = Array.isArray(patch.value) ? patch.value : [patch.value];
+          container.splice(insertIndex, 0, ...values);
+        }
+      } else {
+        const current = parent[key];
+        if (current === undefined) {
+          parent[key] = patch.value as unknown;
+        } else if (Array.isArray(current)) {
+          const values = Array.isArray(patch.value) ? patch.value : [patch.value];
+          current.push(...values);
+        } else if (isObject(current) && isObject(patch.value)) {
+          parent[key] = {
+            ...(current as Record<string, unknown>),
+            ...(patch.value as Record<string, unknown>),
+          };
+        } else {
+          parent[key] = patch.value as unknown;
+        }
+      }
+      break;
+    }
     case "remove": {
       if (selector) {
         const container = parent[key];
