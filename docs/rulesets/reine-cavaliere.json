@@ -1,0 +1,107 @@
+{
+  "meta": {
+    "name": "Reine cavalière",
+    "base": "chess-base@1.0.0",
+    "version": "1.0.0",
+    "description": "La reine conserve ses déplacements classiques et peut aussi sauter comme un cavalier.",
+    "priority": 50
+  },
+  "board": { "size": "8x8", "zones": [] },
+  "pieces": [
+    { "id": "king", "from": "king", "side": "both", "moves": [{ "pattern": "king" }], "spawn": { "count": 1, "startSquares": ["e1", "e8"] } },
+    {
+      "id": "queen",
+      "from": "queen",
+      "side": "both",
+      "moves": [
+        { "pattern": "queen" },
+        { "id": "queen-knight-leap", "pattern": "knight" }
+      ],
+      "spawn": { "count": 1, "startSquares": ["d1", "d8"] }
+    },
+    { "id": "rook", "from": "rook", "side": "both", "moves": [{ "pattern": "rook" }], "spawn": { "count": 2, "startSquares": ["a1", "h1", "a8", "h8"] } },
+    { "id": "bishop", "from": "bishop", "side": "both", "moves": [{ "pattern": "bishop" }], "spawn": { "count": 2, "startSquares": ["c1", "f1", "c8", "f8"] } },
+    { "id": "knight", "from": "knight", "side": "both", "moves": [{ "pattern": "knight" }], "spawn": { "count": 2, "startSquares": ["b1", "g1", "b8", "g8"] } },
+    {
+      "id": "pawn",
+      "from": "pawn",
+      "side": "both",
+      "moves": [{ "pattern": "pawn" }],
+      "spawn": {
+        "count": 8,
+        "startSquares": [
+          "a2",
+          "b2",
+          "c2",
+          "d2",
+          "e2",
+          "f2",
+          "g2",
+          "h2",
+          "a7",
+          "b7",
+          "c7",
+          "d7",
+          "e7",
+          "f7",
+          "g7",
+          "h7"
+        ]
+      }
+    }
+  ],
+  "effects": [],
+  "rules": {
+    "turnOrder": "whiteThenBlack",
+    "checkRules": "classic",
+    "promotion": [{ "piece": "pawn", "to": ["queen", "rook", "bishop", "knight"] }],
+    "winConditions": [
+      { "type": "checkmate" },
+      { "type": "timeout" },
+      { "type": "stalemate", "params": { "result": "draw" } }
+    ],
+    "conflictPolicy": {
+      "onDuplicatePieceId": "error",
+      "onMoveOverride": "replace",
+      "onEffectCollision": "priorityHighWins"
+    }
+  },
+  "tests": [
+    {
+      "name": "Smoke ouverture classique",
+      "fen": "startpos",
+      "script": [
+        { "step": "e2-e4", "illegal": false },
+        { "step": "b8-c6", "illegal": false }
+      ]
+    },
+    {
+      "name": "Reine blanche capture en saut de cavalier",
+      "fen": "4k3/8/4n3/8/3Q4/8/8/4K3 w - - 0 1",
+      "script": [
+        { "step": "d4-e6", "illegal": false }
+      ]
+    },
+    {
+      "name": "Reine blanche saut de cavalier sans capture",
+      "fen": "4k3/8/8/8/3Q4/8/8/4K3 w - - 0 1",
+      "script": [
+        { "step": "d4-f5", "illegal": false }
+      ]
+    },
+    {
+      "name": "Reine noire capture en saut de cavalier",
+      "fen": "4k3/8/8/3q4/5N2/8/8/4K3 b - - 0 1",
+      "script": [
+        { "step": "d5-f4", "illegal": false }
+      ]
+    },
+    {
+      "name": "Saut de cavalier interdit sur une pièce alliée",
+      "fen": "4k3/8/4N3/8/3Q4/8/8/4K3 w - - 0 1",
+      "script": [
+        { "step": "d4-e6", "illegal": true }
+      ]
+    }
+  ]
+}
