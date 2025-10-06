@@ -430,7 +430,7 @@ export function PuzzleTrainer({ className }: PuzzleTrainerProps) {
   const canShowBoard = Boolean(currentPuzzle) && !isFetching;
 
   return (
-    <Card className={cn("flex h-full flex-col", className)}>
+    <Card className={cn("neon-card flex h-full flex-col bg-transparent", className)}>
       <CardHeader className="gap-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -486,7 +486,7 @@ export function PuzzleTrainer({ className }: PuzzleTrainerProps) {
           </Alert>
         ) : (
           <div className="space-y-4">
-            <div className="relative aspect-square w-full">
+            <div className="relative mx-auto aspect-square w-full max-w-mobile-board min-h-mobile-board sm:min-h-0">
               <Canvas shadows>
                 <ambientLight intensity={0.6} />
                 <directionalLight position={[5, 10, 5]} intensity={0.9} castShadow />
