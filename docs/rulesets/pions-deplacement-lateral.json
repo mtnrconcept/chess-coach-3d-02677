@@ -1,0 +1,152 @@
+{
+  "meta": {
+    "id": "pions-deplacement-lateral",
+    "name": "Pions latéraux",
+    "base": "chess-base@1.0.0",
+    "version": "1.0.0",
+    "description": "Les pions conservent leurs mouvements classiques et peuvent aussi se déplacer horizontalement d’une case sur une case vide, sans capturer.",
+    "priority": 50
+  },
+  "board": { "size": "8x8", "zones": [] },
+  "pieces": [
+    {
+      "id": "king",
+      "from": "king",
+      "side": "both",
+      "moves": [{ "pattern": "king" }],
+      "spawn": { "count": 1, "startSquares": ["e1", "e8"] }
+    },
+    {
+      "id": "queen",
+      "from": "queen",
+      "side": "both",
+      "moves": [{ "pattern": "queen" }],
+      "spawn": { "count": 1, "startSquares": ["d1", "d8"] }
+    },
+    {
+      "id": "rook",
+      "from": "rook",
+      "side": "both",
+      "moves": [{ "pattern": "rook" }],
+      "spawn": { "count": 2, "startSquares": ["a1", "h1", "a8", "h8"] }
+    },
+    {
+      "id": "bishop",
+      "from": "bishop",
+      "side": "both",
+      "moves": [{ "pattern": "bishop" }],
+      "spawn": { "count": 2, "startSquares": ["c1", "f1", "c8", "f8"] }
+    },
+    {
+      "id": "knight",
+      "from": "knight",
+      "side": "both",
+      "moves": [{ "pattern": "knight" }],
+      "spawn": { "count": 2, "startSquares": ["b1", "g1", "b8", "g8"] }
+    },
+    {
+      "id": "pawn",
+      "from": "pawn",
+      "side": "both",
+      "moves": [
+        { "pattern": "pawn" },
+        {
+          "id": "pawn-side-step",
+          "pattern": "step",
+          "vectors": [
+            { "x": 1, "y": 0 },
+            { "x": -1, "y": 0 }
+          ],
+          "max": 1,
+          "capture": "forbidden",
+          "conditions": [
+            { "op": "empty", "square": "to" }
+          ]
+        }
+      ],
+      "spawn": {
+        "count": 8,
+        "startSquares": [
+          "a2",
+          "b2",
+          "c2",
+          "d2",
+          "e2",
+          "f2",
+          "g2",
+          "h2",
+          "a7",
+          "b7",
+          "c7",
+          "d7",
+          "e7",
+          "f7",
+          "g7",
+          "h7"
+        ]
+      }
+    }
+  ],
+  "effects": [],
+  "rules": {
+    "turnOrder": "whiteThenBlack",
+    "checkRules": "classic",
+    "promotion": [
+      { "piece": "pawn", "to": ["queen", "rook", "bishop", "knight"] }
+    ],
+    "winConditions": [
+      { "type": "checkmate" },
+      { "type": "timeout" },
+      { "type": "stalemate", "params": { "result": "draw" } }
+    ],
+    "conflictPolicy": {
+      "onDuplicatePieceId": "error",
+      "onMoveOverride": "replace",
+      "onEffectCollision": "priorityHighWins"
+    }
+  },
+  "tests": [
+    {
+      "name": "Le pion blanc peut se déplacer latéralement vers la droite",
+      "fen": "4k3/8/8/8/3P4/8/8/4K3 w - - 0 1",
+      "script": [
+        { "step": "d4-e4", "illegal": false }
+      ]
+    },
+    {
+      "name": "Le pion blanc ne peut pas capturer latéralement",
+      "fen": "4k3/8/8/8/3Pp3/8/8/4K3 w - - 0 1",
+      "script": [
+        { "step": "d4-e4", "illegal": true }
+      ]
+    },
+    {
+      "name": "Le pion blanc peut se déplacer latéralement vers la gauche",
+      "fen": "4k3/8/8/8/4P3/8/8/4K3 w - - 0 1",
+      "script": [
+        { "step": "e4-d4", "illegal": false }
+      ]
+    },
+    {
+      "name": "Le pion noir peut se déplacer latéralement vers la droite",
+      "fen": "4k3/8/8/3p4/8/8/8/4K3 b - - 0 1",
+      "script": [
+        { "step": "d5-e5", "illegal": false }
+      ]
+    },
+    {
+      "name": "Le pion noir peut se déplacer latéralement vers la gauche",
+      "fen": "4k3/8/8/3p4/8/8/8/4K3 b - - 0 1",
+      "script": [
+        { "step": "d5-c5", "illegal": false }
+      ]
+    },
+    {
+      "name": "Le pion noir ne peut pas capturer latéralement",
+      "fen": "4k3/8/8/2Pp4/8/8/8/4K3 b - - 0 1",
+      "script": [
+        { "step": "d5-c5", "illegal": true }
+      ]
+    }
+  ]
+}
