@@ -284,7 +284,7 @@ export function BoardWithBot({ bot, orientation = "white", className }: BoardWit
 
   return (
     <div className={cn("grid gap-6 lg:grid-cols-[2fr,1fr]", className)}>
-      <Card className="overflow-hidden">
+      <Card className="neon-card overflow-hidden bg-transparent">
         <CardHeader className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <CardTitle className="text-2xl font-semibold">
@@ -307,7 +307,7 @@ export function BoardWithBot({ bot, orientation = "white", className }: BoardWit
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="relative aspect-square w-full">
+          <div className="relative mx-auto aspect-square w-full max-w-mobile-board min-h-mobile-board sm:min-h-0">
             <Canvas shadows>
               <ambientLight intensity={0.6} />
               <directionalLight position={[5, 10, 5]} intensity={0.9} castShadow />

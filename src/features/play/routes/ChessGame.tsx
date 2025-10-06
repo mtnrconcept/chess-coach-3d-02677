@@ -759,21 +759,25 @@ export default function ChessGame() {
   }[coachLanguage];
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-6">
+    <div className="min-h-screen neon-grid text-slate-100">
+      <div className="container mx-auto max-w-6xl px-4 py-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <Button variant="outline" onClick={() => navigate("/")} className="hover-lift">
+          <Button
+            variant="outline"
+            onClick={() => navigate("/")}
+            className="hover-lift border-cyan-500/60 bg-slate-950/60 text-slate-100 backdrop-blur"
+          >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Retour
           </Button>
-          
+
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-chess-gold">
+            <h1 className="text-2xl font-bold text-cyan-200 drop-shadow-[0_0_12px_rgba(34,211,238,0.45)]">
               {gameState.timeControl?.time} • {gameMode === 'local' ? '2 joueurs' : gameState.coachingMode ? "Mode Coaching" : gameState.eloLevel?.name}
               {activeVariant && ` • ${activeVariant.title}`}
             </h1>
-            <div className="flex flex-wrap items-center gap-2 justify-center mt-1">
+            <div className="flex flex-wrap items-center gap-2 justify-center mt-2 text-slate-300">
               <Badge variant={gameStatus === 'playing' ? "default" : "secondary"}>
                 {gameStatus === 'playing' ? 'En cours' :
                  gameStatus === 'checkmate' ? 'Échec et mat' :
@@ -808,17 +812,29 @@ export default function ChessGame() {
 
           <div className="flex gap-2">
             {isVariantReady && activeVariant && (
-              <Button variant="outline" onClick={handleSpecialMove} className="hover-lift">
+              <Button
+                variant="outline"
+                onClick={handleSpecialMove}
+                className="hover-lift border-fuchsia-500/70 bg-slate-950/60 text-fuchsia-200 backdrop-blur"
+              >
                 <Sparkles className="w-4 h-4 mr-2" />
                 Attaque spéciale
               </Button>
             )}
-            <Button variant="outline" onClick={handleNewGame} className="hover-lift">
+            <Button
+              variant="outline"
+              onClick={handleNewGame}
+              className="hover-lift border-cyan-500/60 bg-slate-950/60 text-cyan-200 backdrop-blur"
+            >
               <RotateCcw className="w-4 h-4 mr-2" />
               Nouvelle partie
             </Button>
             {gameStatus === 'playing' && (
-              <Button variant="destructive" onClick={handleResign} className="hover-lift">
+              <Button
+                variant="destructive"
+                onClick={handleResign}
+                className="hover-lift bg-rose-500/80 text-white shadow-[0_0_25px_rgba(244,63,94,0.55)]"
+              >
                 <Flag className="w-4 h-4 mr-2" />
                 Abandonner
               </Button>
@@ -835,8 +851,8 @@ export default function ChessGame() {
               isWhiteTurn={isWhiteTurn}
               gameStatus={gameStatus}
             />
-            
-            <Card className="p-4 gradient-card border-chess/60">
+
+            <Card className="neon-card p-4 border-cyan-500/30 bg-transparent">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold">{coachConfig.coachTitle}</p>
@@ -879,9 +895,9 @@ export default function ChessGame() {
           </div>
 
           {/* 3D Chess Board */}
-          <div className="lg:col-span-3">
-            <Card className="p-4 gradient-card border-chess">
-              <div className="aspect-square w-full max-w-2xl mx-auto">
+          <div className="lg:col-span-3 flex flex-col items-center">
+            <Card className="neon-card w-full p-4 border-cyan-500/40 bg-transparent">
+              <div className="relative mx-auto aspect-square w-full max-w-mobile-board min-h-mobile-board sm:min-h-0 sm:max-w-3xl">
                 <Canvas shadows>
                   <AnimatedCamera />
                   <Environment preset="sunset" background />
