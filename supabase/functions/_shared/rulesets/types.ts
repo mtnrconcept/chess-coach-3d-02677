@@ -58,7 +58,7 @@ export interface CompiledRuleset {
   tests?: RuleTest[];
 }
 
-export type PatchOperation = "extend" | "replace" | "remove";
+export type PatchOperation = "extend" | "replace" | "remove" | "add";
 
 export interface RulePatch {
   op: PatchOperation;
