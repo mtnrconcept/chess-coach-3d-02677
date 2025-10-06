@@ -1009,6 +1009,40 @@ const normalizeRuleSpec = (raw: unknown, fallbackName: string): RuleSpec | null 
   };
 };
 
+const chainedSelectorPattern = /\]\s*\[/;
+
+const sanitiseRuleSpecPatches = (
+  spec: RuleSpec,
+  logger?: Pick<typeof console, "warn">,
+): RuleSpec => {
+  if (!Array.isArray(spec.patches) || spec.patches.length === 0) {
+    return spec;
+  }
+
+  const safePatches = spec.patches.filter((patch) => {
+    if (!patch || typeof patch.path !== "string") {
+      logger?.warn?.("Patch sans chemin valide ignoré lors de la compilation.");
+      return false;
+    }
+
+    if (chainedSelectorPattern.test(patch.path)) {
+      logger?.warn?.(`Patch ignoré : sélecteur chaîné non pris en charge (${patch.path}).`);
+      return false;
+    }
+
+    return true;
+  });
+
+  if (safePatches.length === spec.patches.length) {
+    return spec;
+  }
+
+  return {
+    ...spec,
+    patches: safePatches,
+  };
+};
+
 export async function generateCustomRules(
   request: CustomRulesRequest,
   options: GenerateCustomRulesOptions = {},
@@ -1154,6 +1188,10 @@ Niveau : ${difficultyLabels[difficulty]}.`;
   }
 
   if (!compiledRuleset) {
+    if (ruleSpec) {
+      ruleSpec = sanitiseRuleSpecPatches(ruleSpec, logger);
+    }
+
     try {
       const compilation = await compileRuleSpec(ruleSpec!);
       compiledRuleset = compilation.compiled;
