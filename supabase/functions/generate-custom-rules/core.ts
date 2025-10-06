@@ -16,6 +16,7 @@ export interface CustomRulesResponse {
   ruleName: string;
   pluginCode: string;
   warning?: string;
+  pluginWarning?: string;
   compiledRuleset: CompiledRuleset;
   compiledHash: string;
   ruleSpec: RuleSpec;
@@ -1027,6 +1028,34 @@ const sanitiseRuleSpecPatches = (
 
     if (chainedSelectorPattern.test(patch.path)) {
       logger?.warn?.(`Patch ignoré : sélecteur chaîné non pris en charge (${patch.path}).`);
+      return false;
+    }
+
+    const path = patch.path;
+
+    // Reject unsupported selectors (only [id=...] or [integer] are supported)
+    const bracketMatch = path.match(/\[([^\]]+)\]/g);
+    if (bracketMatch) {
+      for (const bracket of bracketMatch) {
+        const inner = bracket.slice(1, -1); // Remove [ and ]
+        // Valid: [id=something], [0], [1], etc.
+        // Invalid: [direction=N,steps=1], [foo=bar], etc.
+        const isIdSelector = /^id=\w+$/.test(inner);
+        const isIntegerIndex = /^\d+$/.test(inner);
+        
+        if (!isIdSelector && !isIntegerIndex) {
+          logger?.warn?.(`Patch ignoré: sélecteur non supporté "${bracket}" dans "${path}"`);
+          return false;
+        }
+      }
+    }
+
+    // Reject patches targeting .moves[...] with a selector (source of "Index out of bounds")
+    // Only allow:
+    // - extend on "pieces[id=...].moves" (add items)
+    // - replace on "pieces[id=...].moves" (replace entire array)
+    if (path.includes('.moves[')) {
+      logger?.warn?.(`Patch ignoré: modification directe d'un élément de moves[] non supportée dans "${path}"`);
       return false;
     }
 

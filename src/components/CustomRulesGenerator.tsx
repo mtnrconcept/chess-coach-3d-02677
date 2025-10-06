@@ -376,7 +376,7 @@ export function CustomRulesGenerator() {
         throw new Error("La propriété rules est manquante ou invalide.");
       }
 
-      const compiled = parsed as CompiledRuleset;
+      const compiled = parsed as unknown as CompiledRuleset;
       const hash = await computeCompiledRulesetHash(compiled);
       const formatted = JSON.stringify(compiled, null, 2);
 
