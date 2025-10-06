@@ -75,4 +75,54 @@ describe("generateCustomRules sanitisation", () => {
     expect(requests.filter((entry) => entry.model === "google/gemini-2.5-flash").length).toBe(1);
     expect(requests.filter((entry) => entry.model === "google/gemini-2.5-pro").length).toBe(1);
   });
+
+  test("removes patches targeting slash-based array append syntax", async () => {
+    const ruleSpecPayload = JSON.stringify({
+      meta: {
+        name: "Fous acrobates",
+        base: "chess-base@1.0.0",
+        version: "1.0.0",
+        description: "Variante test",
+      },
+      patches: [
+        {
+          op: "add",
+          path: "pieces[id=bishop].moves/-",
+          value: { type: "jump", steps: [{ delta: { x: 1, y: 2 } }] },
+        },
+      ],
+    });
+
+    const pluginPayload = "module.exports = {};";
+
+    const warnings: string[] = [];
+
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+
+      if (body.model === "google/gemini-2.5-flash") {
+        return buildResponse(ruleSpecPayload);
+      }
+
+      if (body.model === "google/gemini-2.5-pro") {
+        return buildResponse(pluginPayload);
+      }
+
+      throw new Error(`Unexpected model ${body.model}`);
+    };
+
+    const logger = {
+      info: () => {},
+      error: () => {},
+      warn: (message: string) => warnings.push(message),
+    } as const;
+
+    const result = await generateCustomRules(
+      { description: "Les fous bondissent", difficulty: "intermediate" },
+      { lovableApiKey: "demo", fetchImpl, logger },
+    );
+
+    expect(result.ruleSpec.patches?.length ?? 0).toBe(0);
+    expect(warnings.some((entry) => entry.includes("contient un caractère '/'"))).toBe(true);
+  });
 });

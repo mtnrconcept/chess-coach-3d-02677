@@ -1184,6 +1184,18 @@ const sanitiseRuleSpecPatches = (
 
     const path = patch.path;
 
+    const invalidSegment = path
+      .split(".")
+      .map((segment) => segment.trim())
+      .find((segment) => segment.includes("/"));
+
+    if (invalidSegment) {
+      logger?.warn?.(
+        `Patch ignoré: le segment "${invalidSegment}" contient un caractère '/' non supporté dans "${path}"`,
+      );
+      return false;
+    }
+
     // Reject unsupported selectors (only [id=...] or [integer] are supported)
     const bracketMatch = path.match(/\[([^\]]+)\]/g);
     if (bracketMatch) {
