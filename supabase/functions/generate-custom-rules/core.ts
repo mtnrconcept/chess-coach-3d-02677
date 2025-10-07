@@ -254,15 +254,11 @@ const PRECOMPILED_VARIANTS: PrecompiledVariant[] = [
           moves: [
             { pattern: "pawn" },
             {
-              id: "pawn-side-step",
-              pattern: "step",
-              vectors: [
-                { x: 1, y: 0 },
-                { x: -1, y: 0 },
-              ],
-              max: 1,
-              capture: "forbidden",
-              conditions: [{ op: "empty", square: "to" }],
+              type: "move",
+              vectorsWhite: [[1, 0], [-1, 0]],
+              vectorsBlack: [[1, 0], [-1, 0]],
+              maxSteps: 1,
+              requires: ["empty"]
             },
           ],
           spawn: {

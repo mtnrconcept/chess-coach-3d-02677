@@ -1422,7 +1422,7 @@ const RuleMultiplyingPawns: RulePlugin = {
 
     const beforePiece = api.getPieceAt(prevState, move.from);
     if (!beforePiece) return;
-    const isPawn = beforePiece.type === 'pawn' || beforePiece.type === 'p';
+    const isPawn = beforePiece.type === 'pawn';
     if (!isPawn) return;
 
     const dir = beforePiece.color === 'white' ? -1 : 1;
